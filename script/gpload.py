@@ -1225,7 +1225,7 @@ class gpload:
                                           datetime.date.today().strftime('%Y%m%d') + '.log')
 
         try:
-            self.logfile = open(self.options.l,'a')
+            self.logfile = open(self.options.l,'a', encoding='utf-8')
         except Exception as e:
             self.log(self.ERROR, "could not open logfile %s: %s" % \
                       (self.options.l, e))
@@ -1300,18 +1300,16 @@ class gpload:
         Level is either DEBUG, LOG, INFO, ERROR. a is the message
         """
         t = time.localtime()
-        str = '|'.join(
+        message = '|'.join(
                        [datetime.datetime.today().strftime('%Y-%m-%d %H:%M:%S'),
                         self.elevel2str(level), a]) + '\n'
 
-        str = str.encode('utf-8')
-
         if level <= self.options.qv:
-            sys.stdout.write(str)
+            sys.stdout.write(message)
 
         if level <= self.options.qv or level <= self.INFO:
             try:
-               self.logfile.write(str)
+               self.logfile.write(message)
                self.logfile.flush()
             except AttributeError as e:
                 pass
