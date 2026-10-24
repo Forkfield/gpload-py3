@@ -298,7 +298,7 @@ def notice_processor(self):
        return
 
     theNotices = self.db.notices()
-    r = re.compile("^NOTICE:  Found (\d+) data formatting errors.*")
+    r = re.compile(r"^NOTICE:  Found (\d+) data formatting errors.*")
     messageNumber = 0
     m = None
     while messageNumber < len(theNotices) and m == None:
@@ -1983,7 +1983,7 @@ class gpload:
             #
             update_condition = ' ' + update_condition + ' '
             for name, type, mapto, seq in self.into_columns:
-                regexp = '(?<=[^\w])%s(?=[^\w])' % name
+                regexp = r'(?<=[^\w])%s(?=[^\w])' % name
                 self.log(self.DEBUG, 'update_condition re: ' + regexp)
                 temp_update_condition = update_condition
                 updateConditionList = splitIntoLiteralsAndNonLiterals(update_condition)
@@ -1998,7 +1998,7 @@ class gpload:
                 if update_condition == temp_update_condition:
                    # see if column can be undelimited, and try again.
                    if len(name) > 2 and name[1:-1] == name[1:-1].lower():
-                      regexp = '(?<=[^\w])%s(?=[^\w])' % name[1:-1]
+                      regexp = r'(?<=[^\w])%s(?=[^\w])' % name[1:-1]
                       self.log(self.DEBUG, 'update_condition undelimited re: ' + regexp)
                       update_condition = re.sub( regexp
                                                , self.fix_update_cond
