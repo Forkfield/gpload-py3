@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # gpload - load file(s) into Greenplum Database
 # Copyright Greenplum 2008
@@ -24,9 +24,6 @@ Options:
 
 import re
 import sys
-if sys.hexversion<0x2040400:
-    sys.stderr.write("gpload needs python 2.4.4 or higher\n")
-    sys.exit(2)
 
 try:
     import yaml
