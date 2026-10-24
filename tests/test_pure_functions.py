@@ -1,0 +1,140 @@
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class FakeGpload:
+    ERROR = 1
+
+    def __init__(self):
+        self.messages = []
+
+    def log(self, _level, message):
+        self.messages.append(message)
+
+
+def test_quote(gpload):
+    assert gpload.quote("plain") == "'plain'"
+    assert gpload.quote("O'Reilly") == "'O''Reilly'"
+    assert gpload.quote("a\\b") == "'a\\\\b'"
+    assert gpload.quote("a\\b'c") == "'a\\\\b''c'"
+
+
+def test_quote_ident_and_unident(gpload):
+    assert gpload.quote_ident("col") == '"col"'
+    assert gpload.quote_ident('a"b') == '"a""b"'
+    assert gpload.quote_unident('"a""b"') == 'a"b'
+    assert gpload.quote_unident("plain") == "plain"
+    assert gpload.quote_unident(None) is None
+    assert gpload.quote_unident("") == ""
+
+
+def test_is_delimited(gpload):
+    assert gpload.isDelimited('"abc"') is True
+    assert gpload.isDelimited("abc") is False
+    assert gpload.isDelimited('""') is True
+    assert gpload.isDelimited("") is False
+
+
+def test_split_multipart_identifier(gpload):
+    assert gpload.splitUpMultipartIdentifier("table") == ["table"]
+    assert gpload.splitUpMultipartIdentifier("public.load_test") == [
+        "public",
+        "load_test",
+    ]
+    assert gpload.splitUpMultipartIdentifier('"My Schema"."My.Table"') == [
+        '"My Schema"',
+        '"My.Table"',
+    ]
+    assert gpload.splitUpMultipartIdentifier('public."My.Table"') == [
+        "public",
+        '"My.Table"',
+    ]
+
+
+def test_split_into_literals_and_non_literals(gpload):
+    assert gpload.splitIntoLiteralsAndNonLiterals("a='b''c' and d='e'") == [
+        "a=",
+        "'b''c'",
+        " and d=",
+        "'e'",
+    ]
+    assert gpload.splitIntoLiteralsAndNonLiterals('"a"."b"', quoteValue='"') == [
+        " ",
+        '"a"',
+        ".",
+        '"b"',
+    ]
+    assert gpload.splitIntoLiteralsAndNonLiterals("") == []
+
+
+def test_split_pgpass_line(gpload):
+    assert gpload.splitPgpassLine("host:5432:db:user:pass") == [
+        "host",
+        "5432",
+        "db",
+        "user",
+        "pass",
+    ]
+    assert gpload.splitPgpassLine(r"host:5432:db:user:pa\:ss") == [
+        "host",
+        "5432",
+        "db",
+        "user",
+        "pa:ss",
+    ]
+    assert gpload.splitPgpassLine("host:5432:db:user:pass\\")[-1] == "pass\\"
+
+
+def test_bytestr(gpload):
+    assert gpload.bytestr(1) == "1 byte"
+    assert gpload.bytestr(1024) == "1 kB"
+    assert gpload.bytestr(1536) == "1.5 kB"
+    assert gpload.bytestr(1024 ** 2) == "1 MB"
+    assert gpload.bytestr(1024 ** 3 + 512 * 1024 ** 2) == "1.5 GB"
+
+
+def test_jenkins_empty(gpload):
+    assert gpload.jenkins("") == 0
+
+
+def test_shortname_compatibility(gpload):
+    assert gpload.shortname("mytable") == "my3cbb7ba8"
+    assert gpload.shortname("some_pretty_long_test_table_name") == "so9068664a"
+    assert gpload.shortname("t") == "006742be70"
+    assert gpload.shortname("my table") == "my3cbb7ba8"
+
+
+def test_valid_tokens_shape(gpload):
+    assert gpload.valid_tokens["version"] == {
+        "parse_children": True,
+        "parent": None,
+    }
+    assert gpload.valid_tokens["source"]["parent"] == "input"
+    assert gpload.valid_tokens["reuse_tables"]["parent"] == "preload"
+
+
+def test_yaml_walk_accepts_reference_fixture(gpload):
+    document = (ROOT / "tests" / "fixtures" / "insert_text.yaml").read_text(
+        encoding="utf-8"
+    )
+    fake = FakeGpload()
+
+    gpload.yaml_walk(fake, yaml.compose(document).value, [])
+
+    assert fake.messages == []
+
+
+def test_yaml_walk_reports_key_in_wrong_parent(gpload):
+    document = """VERSION: 1.0.0.1
+GPLOAD:
+  INPUT:
+    - TABLE: public.load_test
+"""
+    fake = FakeGpload()
+
+    gpload.yaml_walk(fake, yaml.compose(document).value, [])
+
+    assert fake.messages == ['unexpected key: "table"']
