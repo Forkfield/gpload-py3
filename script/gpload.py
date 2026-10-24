@@ -2144,7 +2144,7 @@ class gpload:
         elif formatType=='csv':
             formatOpts += "null '' "
         else:
-            formatOpts += "null %s " % quote("\N")
+            formatOpts += "null %s " % quote(r"\N")
 
         esc = self.getconfig('gpload:input:escape', None, None)
         if esc:
