@@ -1806,11 +1806,11 @@ class gpload:
             for d in columns:
                 if type(d)!=dict:
                     self.control_file_error("gpload:input:columns must be a sequence of YAML mappings")
-                tempkey = d.keys()[0]
+                tempkey = next(iter(d))
                 value = d[tempkey]
                 """ remove leading or trailing spaces """
                 d = { tempkey.strip() : value }
-                key = d.keys()[0]
+                key = next(iter(d))
                 if d[key] == None:
                     self.log(self.DEBUG, 
                              'getting source column data type from target')
