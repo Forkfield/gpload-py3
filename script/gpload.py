@@ -1226,7 +1226,7 @@ class gpload:
             self.log(self.INFO, 'gpload has the -D option, so it does not actually load any data')
 
         try:
-            f = open(configFilename,'r')
+            f = open(configFilename,'r', encoding='utf-8')
         except IOError as e:
             self.log(self.ERROR, "could not open configuration file: %s" % e)
 
@@ -1234,7 +1234,7 @@ class gpload:
         try:
             # do an initial parse, validating the config file
             doc = f.read()
-            self.config = yaml.load(doc)
+            self.config = yaml.safe_load(doc)
 
             self.configOriginal = changeToUnicode(self.config)
             self.config = dictKeyToLower(self.config)
@@ -1242,7 +1242,7 @@ class gpload:
             if ver != '1.0.0.1':
                 self.control_file_error("gpload configuration schema version must be 1.0.0.1")
             # second parse, to check that the keywords are sensible
-            y = yaml.compose(doc)
+            y = yaml.compose(doc, Loader=yaml.SafeLoader)
             # first should be MappingNode
             if not isinstance(y, yaml.MappingNode):
                 self.control_file_error("configuration file must begin with a mapping")
@@ -1252,14 +1252,8 @@ class gpload:
             self.log(self.ERROR, "configuration file error: %s, line %s" % \
                 (e.problem, e.problem_mark.line))
         except yaml.reader.ReaderError as e:
-            es = ""
-            if isinstance(e.character, str):
-                es = "'%s' codec can't decode byte #x%02x: %s position %d" % \
-                        (e.encoding, ord(e.character), e.reason,
-                         e.position)
-            else:
-                es = "unacceptable character #x%04x at byte %d: %s"    \
-                    % (ord(e.character), e.position, e.reason)
+            es = "unacceptable character #x%04x at byte %d: %s"    \
+                % (e.character, e.position, e.reason)
             self.log(self.ERROR, es)
         except yaml.error.MarkedYAMLError as e:
             self.log(self.ERROR, "configuration file error: %s, line %s" % \
