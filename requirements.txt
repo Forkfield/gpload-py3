@@ -1,5 +1,4 @@
 PyYAML==6.0.3
 
-# PyGreSQL подключается на шаге 3.3 (spike и фиксация версии).
-# Для сборки нужен pg_config (пакет libpq-dev); в текущем окружении его нет.
-# PyGreSQL==6.2.3
+# PyGreSQL 6.x requires pg_config (libpq-dev) at build time.
+PyGreSQL==6.2.3
