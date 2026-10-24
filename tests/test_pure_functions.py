@@ -31,6 +31,17 @@ def test_decode_unicode_escape(gpload):
     )
 
 
+def test_database_text_helpers(gpload):
+    assert gpload.to_text(b"text") == "text"
+    assert gpload.to_text("text") == "text"
+    assert gpload.to_bool(True) is True
+    assert gpload.to_bool(False) is False
+    assert gpload.to_bool(b"t") is True
+    assert gpload.to_bool(b"f") is False
+    assert gpload.to_bool("true") is True
+    assert gpload.to_bool("false") is False
+
+
 def test_quote_ident_and_unident(gpload):
     assert gpload.quote_ident("col") == '"col"'
     assert gpload.quote_ident('a"b') == '"a""b"'

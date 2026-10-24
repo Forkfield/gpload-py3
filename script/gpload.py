@@ -820,6 +820,25 @@ def decode_unicode_escape(a):
     return codecs.decode(a, 'unicode_escape')
 
 
+def to_db_text(value):
+    if isinstance(value, bytes):
+        return value.decode('utf-8')
+    return value
+
+
+def to_text(value):
+    if isinstance(value, bytes):
+        return value.decode('utf-8')
+    return value
+
+
+def to_bool(value):
+    value = to_text(value)
+    if isinstance(value, str):
+        return value.lower() not in ('', 'f', 'false', '0')
+    return bool(value)
+
+
 def splitPgpassLine(a):
     """
     If the user has specified a .pgpass file, we'll have to parse it. We simply
@@ -1786,10 +1805,10 @@ class gpload:
                              WHERE c.relname = '%s' 
                              AND pg_catalog.pg_table_is_visible(c.oid);""" % quote_unident(self.table)
             
-            resultList = self.db.query(queryString.encode('utf-8')).getresult()
+            resultList = self.db.query(to_db_text(queryString)).getresult()
             
             if len(resultList) > 0: 
-                self.schema = (resultList[0])[0]
+                self.schema = to_text((resultList[0])[0])
                 self.log(self.INFO, "setting schema '%s' for table '%s'" % (self.schema, quote_unident(self.table)))
             else:
                 self.log(self.ERROR, "table %s not found in any database schema" % self.table)
@@ -1815,21 +1834,18 @@ class gpload:
         count = 0
         self.into_columns = []
         self.into_columns_dict = dict()
-        resultList = self.db.query(queryString.encode('utf-8')).dictresult()
+        resultList = self.db.query(to_db_text(queryString)).dictresult()
         while count < len(resultList):
             row = resultList[count]
             count += 1
-            ct = str(row['data_type'])
+            ct = to_text(row['data_type'])
             if ct == 'bigserial':
                ct = 'bigint'
             elif ct == 'serial':
                ct = 'int4'
-            name = str(row['column_name'])
+            name = to_text(row['column_name'])
             name = quote_ident(name)
-            if str(row['has_sequence']) != 'f':
-                has_seq = True
-            else:
-                has_seq = False
+            has_seq = to_bool(row['has_sequence'])
             i = [name,ct,None, has_seq]
             self.into_columns.append(i)
             self.into_columns_dict[name] = i
@@ -1842,7 +1858,7 @@ class gpload:
                         where c.relname = '%s' and 
                         n.nspname = '%s' and 
                         n.oid = c.relnamespace""" % (tableName, tableSchema)
-            resultList = self.db.query(sql.encode('utf-8')).getresult()
+            resultList = self.db.query(to_db_text(sql)).getresult()
             if len(resultList) > 0:
                 self.log(self.ERROR, "permission denied for table %s.%s" % \
                             (tableSchema, tableName))
@@ -2011,7 +2027,7 @@ class gpload:
         if tableName:
             sql = "select %s::regclass::oid" % quote(quote_unident(tableName))
             try:
-                resultList = self.db.query(sql.encode('utf-8')).getresult()
+                resultList = self.db.query(to_db_text(sql)).getresult()
                 return resultList[0][0]
             except Exception as e:
                 pass
@@ -2124,10 +2140,10 @@ class gpload:
         if self.reuse_tables == True:
             sql = self.get_reuse_exttable_query(formatType, formatOpts,
                     limitStr, from_cols, self.extSchemaName, self.log_errors)
-            resultList = self.db.query(sql.encode('utf-8')).getresult()
+            resultList = self.db.query(to_db_text(sql)).getresult()
             if len(resultList) > 0:
                 # found an external table to reuse. no need to create one. we're done here.
-                self.extTableName = (resultList[0])[0]
+                self.extTableName = to_text((resultList[0])[0])
                 self.extSchemaTable = self.extTableName
                 self.log(self.INFO, "reusing external table %s" % self.extSchemaTable)
                 return
@@ -2159,7 +2175,7 @@ class gpload:
             sql += "segment reject limit %s "%limitStr
         
         try:
-            self.db.query(sql.encode('utf-8'))
+            self.db.query(to_db_text(sql))
         except Exception as e:
             self.log(self.ERROR, 'could not run SQL "%s": %s' % (sql, str(e)))
 
@@ -2192,7 +2208,7 @@ class gpload:
             including_defaults = " including defaults"
 
         sql = "SELECT * FROM pg_class WHERE relname LIKE 'temp_gpload_reusable_%%';"
-        resultList = self.db.query(sql.encode('utf-8')).getresult()
+        resultList = self.db.query(to_db_text(sql)).getresult()
         if len(resultList) > 0:
             self.log(self.WARN, """Old style, reusable tables named "temp_gpload_reusable_*" from a previous versions were found.
                          Greenplum recommends running "DROP TABLE temp_gpload_reusable_..." on each table. This only needs to be done once.""")
@@ -2215,12 +2231,12 @@ class gpload:
             encoding_conditions = staging_conditions_hash(conditions_str)
 					
             sql = self.get_reuse_staging_table_query(encoding_conditions)
-            resultList = self.db.query(sql.encode('utf-8')).getresult()
+            resultList = self.db.query(to_db_text(sql)).getresult()
            
             if len(resultList) > 0:
                 
                 # found a temp table to reuse. no need to create one. we're done here.
-                self.staging_table_name = (resultList[0])[0]
+                self.staging_table_name = to_text((resultList[0])[0])
                 self.log(self.INFO, "reusing staging table %s" % self.staging_table_name)
                 
                 # truncate it so we don't use old data
@@ -2245,7 +2261,7 @@ class gpload:
         self.log(self.LOG, sql)
 
         if not self.options.D:
-            self.db.query(sql.encode('utf-8'))
+            self.db.query(to_db_text(sql))
             if not self.reuse_tables:
                 self.cleanupSql.append('DROP TABLE IF EXISTS %s' % self.staging_table_name)
 
@@ -2256,12 +2272,12 @@ class gpload:
             # make sure we only get errors for our own instance
             if not self.reuse_tables:
                 queryStr = "select count(*) from gp_read_error_log('%s')" % pg.escape_string(self.extTableName)
-                results = self.db.query(queryStr.encode('utf-8')).getresult()
+                results = self.db.query(to_db_text(queryStr)).getresult()
                 return (results[0])[0]
             else: # reuse_tables
                 queryStr = "select cmdtime, count(*) from gp_read_error_log('%s') group by cmdtime order by cmdtime desc limit 1" % pg.escape_string(self.extTableName)
-                results = self.db.query(queryStr.encode('utf-8')).getresult()
-                self.lastcmdtime = (results[0])[0]
+                results = self.db.query(to_db_text(queryStr)).getresult()
+                self.lastcmdtime = to_text((results[0])[0])
                 global NUM_WARN_ROWS
                 NUM_WARN_ROWS = (results[0])[1]
                 return (results[0])[1];
@@ -2306,7 +2322,7 @@ class gpload:
         self.log(self.LOG, sql)
         if not self.options.D:
             try:
-                self.rowsInserted = self.db.query(sql.encode('utf-8'))
+                self.rowsInserted = self.db.query(to_db_text(sql))
             except Exception as e:
                 # We need to be a bit careful about the error since it may contain non-unicode characters
                 strE = str(e)
@@ -2314,8 +2330,8 @@ class gpload:
                 
                 # report error file and linenum
                 queryStr = "select filename, linenum from gp_read_error_log('%s')" % pg.escape_string(self.extTableName)
-                results = self.db.query(queryStr.encode('utf-8')).getresult()
-                errfile = str((results[0])[0])
+                results = self.db.query(to_db_text(queryStr)).getresult()
+                errfile = to_text((results[0])[0])
                 errlinenum = str((results[0])[1])
                 errfile = re.findall(r"/[0-9]*.csv\]", errfile)[0][1:-1]
                 self.log(self.WARN, "error file: " + errfile)
@@ -2405,7 +2421,7 @@ class gpload:
         self.log(self.LOG, sql)
         if not self.options.D:
             try:
-                self.rowsUpdated = self.db.query(sql.encode('utf-8'))
+                self.rowsUpdated = self.db.query(to_db_text(sql))
             except Exception as e:
                 # We need to be a bit careful about the error since it may contain non-unicode characters
                 strE = str(e)
@@ -2429,11 +2445,11 @@ class gpload:
               "n.nspname = '%s' and c.relname = '%s'; " % (quote_unident(self.schema), quote_unident(self.table))
               
               
-        resultList = self.db.query(sql.encode('utf-8')).getresult()
+        resultList = self.db.query(to_db_text(sql)).getresult()
         attrs = []
         count = 0
         while count < len(resultList):
-            attrs.append((resultList[count])[0])
+            attrs.append(to_text((resultList[count])[0]))
             count = count + 1
 
         return attrs
@@ -2498,7 +2514,7 @@ class gpload:
         self.log(self.LOG, sql)
         if not self.options.D:
             try:
-                self.rowsInserted = self.db.query(sql.encode('utf-8'))
+                self.rowsInserted = self.db.query(to_db_text(sql))
             except Exception as e:
                 # We need to be a bit careful about the error since it may contain non-unicode characters
                 strE = str(e)
@@ -2511,7 +2527,7 @@ class gpload:
         if not self.options.D:
             try:
                 truncateSQLtext = "truncate %s" % tblname
-                self.db.query(truncateSQLtext.encode('utf-8'))
+                self.db.query(to_db_text(truncateSQLtext))
             except Exception as e:
                 self.log(self.ERROR, 'could not execute truncate target %s: %s' % (tblname, str(e)))
 
@@ -2547,7 +2563,7 @@ class gpload:
             self.log(self.LOG, "Pre-SQL from user: %s" % before)
             if not self.options.D:
                 try:
-                    self.db.query(before.encode('utf-8'))
+                    self.db.query(to_db_text(before))
                 except Exception as e:
                     self.log(self.ERROR, 'could not execute SQL in sql:before "%s": %s' %
                              (before, str(e)))
@@ -2570,7 +2586,7 @@ class gpload:
             self.log(self.LOG, "Post-SQL from user: %s" % after)
             if not self.options.D:
                 try:
-                    self.db.query(after.encode('utf-8'))
+                    self.db.query(to_db_text(after))
                 except Exception as e:
                     self.log(self.ERROR, 'could not execute SQL in sql:after "%s": %s' %
                              (after, str(e)))
@@ -2621,7 +2637,7 @@ class gpload:
                 for a in self.cleanupSql:
                     try:
                         self.log(self.DEBUG, a)
-                        self.db.query(a.encode('utf-8'))
+                        self.db.query(to_db_text(a))
                     except Exception:
                         traceback.print_exc(file=self.logfile)
                         self.logfile.flush()
