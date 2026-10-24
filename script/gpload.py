@@ -876,7 +876,7 @@ def cli_help():
 
 #============================================================
 def usage(error = None):
-    print cli_help() or __doc__
+    print(cli_help() or __doc__)
     sys.stdout.flush()
     if error:
         sys.stderr.write('ERROR: ' + error + '\n')
