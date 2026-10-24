@@ -63,7 +63,10 @@ def run_case(root, name, fixture, extra_args, write_output=True):
                 [os.path.join(root, "tests", "fake_bin"), env.get("PATH", "")]
             ),
             "FAKE_PG_QUERY_LOG": query_log,
-            "FAKE_PG_CATALOG": os.path.join(root, "tests", "fixtures", "catalog.json"),
+            "FAKE_PG_CATALOG": env.get(
+                "FAKE_PG_CATALOG",
+                os.path.join(root, "tests", "fixtures", "catalog.json"),
+            ),
             "FAKE_PG_HAS_SEQUENCE_STYLE": env.get(
                 "FAKE_PG_HAS_SEQUENCE_STYLE", "legacy"
             ),

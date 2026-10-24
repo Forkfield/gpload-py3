@@ -99,6 +99,9 @@ class DB:
         text = " ".join(_sql_text(sql).split())
         low = text.lower()
 
+        if os.environ.get("FAKE_PG_FAIL_INSERT") and low.startswith("insert into"):
+            raise RuntimeError("simulated insert failure")
+
         if low.startswith("select n.nspname"):
             return Result([[self._catalog.get("schema", "public")]])
 

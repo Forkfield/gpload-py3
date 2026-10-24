@@ -1,0 +1,14 @@
+{
+  "schema": "public",
+  "dist_key": ["id"],
+  "columns": [
+    {"name": "id", "type": "integer", "has_sequence": false},
+    {"name": "name", "type": "text", "has_sequence": false},
+    {"name": "amount", "type": "numeric", "has_sequence": false}
+  ],
+  "reuse_external_tables": [],
+  "reuse_staging_tables": [],
+  "error_count": 2,
+  "error_rows": [["tests/fixtures/data/log_errors.csv", 3]],
+  "notices": ["NOTICE:  Found 2 data formatting errors"]
+}
