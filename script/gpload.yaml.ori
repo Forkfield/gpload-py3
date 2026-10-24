@@ -1,0 +1,29 @@
+---
+VERSION: 1.0.0.1
+# describe the Greenplum database parameters
+DATABASE: {DATABASE}
+USER: {GPUSER}
+HOST: {GPHOST}
+PORT: {GPPORT}
+GPLOAD:
+   INPUT:
+    - SOURCE:
+         LOCAL_HOSTNAME:
+           - {GPDHOST}
+         PORT_RANGE: {GPDPORT_RANGE}
+         FILE:{FILE}
+    - FORMAT: csv
+    - QUOTE: '"'
+    {HEADER}
+    #- HEADER: true
+    #- COLUMNS:
+    #     - attr1:
+    - ERROR_LIMIT: {ERROR_LIMIT}
+    - MAX_LINE_LENGTH: 327680
+   EXTERNAL:
+    - SCHEMA: '%'
+   OUTPUT:
+    - TABLE: {TABLE}
+    - MODE: INSERT
+   #PRELOAD:
+   # - TRUNCATE: true
