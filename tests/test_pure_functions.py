@@ -107,6 +107,18 @@ def test_shortname_compatibility(gpload):
     assert gpload.shortname("my table") == "my3cbb7ba8"
 
 
+def test_staging_conditions_hash_ascii(gpload):
+    obj = object.__new__(gpload.gpload)
+    conditions = obj.get_staging_conditions_string(
+        "t", [["a", "int4"], ["b", "text"]], ["a"]
+    )
+    assert conditions == "t:2:'a'-'int4'-'b'-'text':'a'"
+    assert (
+        gpload.staging_conditions_hash(conditions)
+        == "f5f18fa6ce286af2a589cdb2d37636b7"
+    )
+
+
 def test_valid_tokens_shape(gpload):
     assert gpload.valid_tokens["version"] == {
         "parse_children": True,

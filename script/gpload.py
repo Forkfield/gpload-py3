@@ -1092,6 +1092,11 @@ def shortname(name):
     else:
         return '00%08x' % (j) # could be len 0 or 1    
 
+
+def staging_conditions_hash(conditions_str):
+    return hashlib.md5(conditions_str.encode('utf-8')).hexdigest()
+
+
 class options:
     pass
 
@@ -2278,7 +2283,7 @@ class gpload:
 
             # create a string from all reuse conditions for staging tables and ancode it 
             conditions_str = self.get_staging_conditions_string(target_table_name, target_columns, distcols)
-            encoding_conditions = hashlib.md5(conditions_str).hexdigest()
+            encoding_conditions = staging_conditions_hash(conditions_str)
 					
             sql = self.get_reuse_staging_table_query(encoding_conditions)
             resultList = self.db.query(sql.encode('utf-8')).getresult()
