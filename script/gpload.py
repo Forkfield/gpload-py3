@@ -127,11 +127,11 @@ valid_tokens = {
     "schema": {'parse_children': False, 'parent': 'external'}}
 
 _abbrevs = [
-    (1<<50L, ' PB'),
-    (1<<40L, ' TB'),
-    (1<<30L, ' GB'),
-    (1<<20L, ' MB'),
-    (1<<10L, ' kB'),
+    (1<<50, ' PB'),
+    (1<<40, ' TB'),
+    (1<<30, ' GB'),
+    (1<<20, ' MB'),
+    (1<<10, ' kB'),
     (1, ' bytes')
     ]
 
