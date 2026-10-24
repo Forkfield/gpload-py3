@@ -1,0 +1,16 @@
+VERSION: 1.0.0.1
+DATABASE: testdb
+USER: testuser
+HOST: localhost
+PORT: 5432
+GPLOAD:
+  INPUT:
+    - SOURCE:
+        LOCAL_HOSTNAME:
+          - gpload-test
+        FILE:
+          - tests/fixtures/data/dry_run.txt
+    - FORMAT: text
+  OUTPUT:
+    - TABLE: public.load_test
+    - MODE: insert

@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Fake gpfdist: print the expected banner, then stay alive until killed."""
+
+import signal
+import sys
+import time
+
+
+def main():
+    args = sys.argv[1:]
+    port = 8000
+    use_ssl = False
+    for index, arg in enumerate(args):
+        if arg == "-p" and index + 1 < len(args):
+            port = int(args[index + 1])
+        elif arg == "--ssl":
+            use_ssl = True
+
+    protocol = "HTTPS" if use_ssl else "HTTP"
+    sys.stdout.write("Serving %s on port %d, fake gpfdist\n" % (protocol, port))
+    sys.stdout.flush()
+
+    def stop(_signum, _frame):
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    while True:
+        time.sleep(0.2)
+
+
+if __name__ == "__main__":
+    main()

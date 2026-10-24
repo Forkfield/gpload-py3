@@ -1,0 +1,1 @@
+1	delimiter	10.5
