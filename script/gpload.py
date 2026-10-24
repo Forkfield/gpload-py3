@@ -978,19 +978,12 @@ def yaml_walk(gp, node, crumb):
 
 def changeToUnicode(a):
     """
-    Change every entry in a list or dictionary to a unicode item
+    Recursively normalize the containers in a YAML document
     """
-    if type(a) == list:
-        return map(changeToUnicode,a)
-    if type(a) == dict:
-        b = dict()
-        for key,value in a.iteritems():
-            if type(key) == str:
-                key = str(key)
-            b[key] = changeToUnicode(value)
-        return b
-    if type(a) == str:
-        a = str(a)
+    if isinstance(a, list):
+        return [changeToUnicode(item) for item in a]
+    if isinstance(a, dict):
+        return {key: changeToUnicode(value) for key, value in a.items()}
     return a
 
 
