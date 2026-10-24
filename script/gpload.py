@@ -1479,7 +1479,7 @@ class gpload:
         if (startPort > 65535 or endPort > 65535):
             # Do not allow invalid ports
             self.control_file_error("Invalid port. Port values must be less than or equal to 65535.")
-        elif not (set(xrange(startPort,endPort+1)) & availablePorts):
+        elif not (set(range(startPort,endPort+1)) & availablePorts):
             self.log(self.ERROR, "no more ports available for gpfdist")
 
         popenList.append('-p')
@@ -1606,7 +1606,7 @@ class gpload:
         self.locations = []
         self.ports = []
         sourceIndex = 0
-        availablePorts = set(xrange(1,65535))
+        availablePorts = set(range(1,65535))
         found_source = False
 
         self.getconfig('gpload:input', list)
