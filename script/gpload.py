@@ -47,6 +47,7 @@ except Exception as e:
     sys.exit(2)
 
 import hashlib
+import codecs
 import datetime,getpass,os,signal,socket,subprocess,threading,time,traceback,re
 import uuid
 import socket
@@ -890,6 +891,11 @@ def quote(a):
     SQLify a string
     """
     return "'"+a.replace("'","''").replace('\\','\\\\')+"'"
+
+
+def decode_unicode_escape(a):
+    return codecs.decode(a, 'unicode_escape')
+
 
 def splitPgpassLine(a):
     """
@@ -2115,11 +2121,11 @@ class gpload:
                 formatOpts += "delimiter ',' "
         elif len(delimiterValue) != 1:
             # is a escape sequence character like '\x1B' or '\u001B'?
-            if len(delimiterValue.decode('unicode-escape')) == 1:
+            if len(decode_unicode_escape(delimiterValue)) == 1:
                 formatOpts += "delimiter '%s' " % \
                     self.getconfig('gpload:input:delimiter', str)
             # is a escape string syntax support by gpdb like E'\x1B' or E'\x\u001B'
-            elif len(delimiterValue.lstrip("E'").rstrip("'").decode('unicode-escape')) ==1:
+            elif len(decode_unicode_escape(delimiterValue.lstrip("E'").rstrip("'"))) ==1:
                 formatOpts += "delimiter %s " % self.getconfig('gpload:input:delimiter', str)
             else:
                 self.control_file_warning('''A delimiter must be single ASCII charactor, you can also use unprintable characters(for example: '\\x1c' / E'\\x1c' or '\\u001c' / E'\\u001c' ''')

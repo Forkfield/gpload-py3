@@ -22,6 +22,15 @@ def test_quote(gpload):
     assert gpload.quote("a\\b'c") == "'a\\\\b''c'"
 
 
+def test_decode_unicode_escape(gpload):
+    assert gpload.decode_unicode_escape(r"\x1c") == "\x1c"
+    assert gpload.decode_unicode_escape(r"\u001c") == "\x1c"
+    assert (
+        gpload.decode_unicode_escape(r"E'\x1c'".lstrip("E'").rstrip("'"))
+        == "\x1c"
+    )
+
+
 def test_quote_ident_and_unident(gpload):
     assert gpload.quote_ident("col") == '"col"'
     assert gpload.quote_ident('a"b') == '"a""b"'
