@@ -263,8 +263,9 @@ CLI-аргументы
 ### Фаза 0. Подготовка и baseline
 
 **Шаг 0.1. Зафиксировать окружение**
-- Создать новый репозиторий `gpload-py3` и ветку `migration`.
-- Скопировать туда `script/gpload.py` и `script/gpload.py.py2-backup` (baseline).
+- Новый репозиторий: `https://github.com/Forkfield/gpload-py3` (remote `origin` настроен).
+- Baseline импортирован в ветку `main`; рабочая ветка — `migration`.
+- В репозиторий скопированы `script/gpload.py`, `script/gpload.py.py2-backup`, `script/load.sh`, `script/gpload.yaml.ori`, план миграции.
 - `python3.10.15` через pyenv/uv, venv.
 - Добавить `requirements.txt`: `PyYAML==6.x`, `PyGreSQL==<выбранная>`.
 - Зафиксировать версию gpfdist/ОС.
