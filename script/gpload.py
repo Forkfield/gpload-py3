@@ -1669,7 +1669,9 @@ class gpload:
 
                 a = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE,
-                                     close_fds=cfds, shell=needshell)
+                                     close_fds=cfds, shell=needshell,
+                                     text=True, encoding='utf-8',
+                                     errors='replace')
                 self.subprocesses.append(a)
             except Exception as e:
                 self.log(self.ERROR, "could not run %s: %s" % \
