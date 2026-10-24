@@ -996,7 +996,7 @@ def dictKeyToLower(a):
         return map(dictKeyToLower,a)
     if type(a) == dict:
         b = dict()
-        for key,value in a.iteritems():
+        for key,value in a.items():
             if type(key) == str:
                 key = str(key.lower())
             b[key] = dictKeyToLower(value)
@@ -1925,7 +1925,7 @@ class gpload:
         mapping = self.getconfig('gpload:output:mapping',dict,None, returnOriginal=True)
 
         if mapping:
-            for key,value in mapping.iteritems():
+            for key,value in mapping.items():
                 if not isinstance(key, str) or not isinstance(value, str):
                     self.control_file_error("gpload:output:mapping must be a YAML type mapping from strings to strings")
                 found = False
