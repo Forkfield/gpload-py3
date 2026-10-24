@@ -1,0 +1,52 @@
+select nt.nspname as table_schema,
+         c.relname as table_name,
+         a.attname as column_name,
+         a.attnum as ordinal_position, 
+         format_type(a.atttypid, a.atttypmod) as data_type,
+         c.relkind = 'r' AS is_updatable,
+         a.atttypid in (23, 20) and a.atthasdef and 
+             (select position ( 'nextval(' in pg_catalog.pg_get_expr(adbin,adrelid) ) > 0 and 
+                          position ( '::regclass)' in pg_catalog.pg_get_expr(adbin,adrelid) ) > 0  
+              FROM pg_catalog.pg_attrdef d
+              WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as has_sequence 
+          from pg_catalog.pg_class c join pg_catalog.pg_namespace nt on (c.relnamespace = nt.oid) 
+             join pg_attribute a on (a.attrelid = c.oid) 
+         where c.relname = 'load_test' and nt.nspname = 'public'
+         and a.attnum > 0 and a.attisdropped = 'f'
+         order by a.attnum 
+select attrelid::regclass
+                 from (
+                        select 
+                            attrelid, 
+                            row_number() over (partition by attrelid order by attnum) as attord, 
+                            attnum,
+                            attname,
+                            atttypid::regtype 
+                        from 
+                            pg_attribute
+                            join
+                            pg_class
+                            on (pg_class.oid = attrelid)
+                            
+                        where 
+                            relstorage = 'x' and
+                            relname like 'ext_gpload_reusable_%' and
+                            attnum > 0 and
+                            not attisdropped and pg_table_is_visible(pg_class.oid)
+                    ) pgattr 
+                    join 
+                    pg_exttable pgext 
+                    on(pgattr.attrelid = pgext.reloid) 
+                     WHERE pgext.fmterrtbl IS NULL  and pgext.location[1] = 'gpfdist://gpload-test:8000/tests/fixtures/data/reuse.csv'
+and pgext.fmttype = 'c'
+                 and pgext.writable = false
+                 and pgext.fmtopts like '%delimiter '','' null '''' escape ''"'' quote ''"''%' and pgext.rejectlimit IS NULL group by attrelid having 
+                    count(*) = 3 and 
+                    bool_and(case when attord = 1 then atttypid = 'integer'::regtype and attname = 'id'
+when attord = 2 then atttypid = 'text'::regtype and attname = 'name'
+when attord = 3 then atttypid = 'numeric'::regtype and attname = 'amount'
+else true 
+                 end)
+                 limit 1;
+create external table ext_gpload_reusable_<UUID>("id" integer,"name" text,"amount" numeric)location('gpfdist://gpload-test:8000/tests/fixtures/data/reuse.csv') format'csv' (delimiter ',' null '' escape '"' quote '"' ) 
+INSERT INTO "public"."load_test" ("id","name","amount") SELECT "id","name","amount" FROM ext_gpload_reusable_<UUID>

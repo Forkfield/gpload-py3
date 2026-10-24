@@ -44,7 +44,7 @@ def normalize(sql):
     return UUID_RE.sub("<UUID>", sql)
 
 
-def run_case(root, name, fixture, extra_args):
+def run_case(root, name, fixture, extra_args, write_output=True):
     case_dir = tempfile.mkdtemp(prefix="gpload-baseline-%s-" % name)
     query_log = os.path.join(case_dir, "queries.jsonl")
     home_dir = os.path.join(case_dir, "home")
@@ -58,13 +58,15 @@ def run_case(root, name, fixture, extra_args):
             "PYTHONPATH": os.pathsep.join(
                 [os.path.join(root, "tests", "fake_pg"), env.get("PYTHONPATH", "")]
             ).rstrip(os.pathsep),
-            "GPHOME_LOADERS": os.path.join(root, "tests", "fake_greenplum"),
+            "GPHOME": os.path.join(root, "tests", "fake_greenplum"),
             "PATH": os.pathsep.join(
                 [os.path.join(root, "tests", "fake_bin"), env.get("PATH", "")]
             ),
             "FAKE_PG_QUERY_LOG": query_log,
             "FAKE_PG_CATALOG": os.path.join(root, "tests", "fixtures", "catalog.json"),
-            "FAKE_PG_HAS_SEQUENCE_STYLE": "legacy",
+            "FAKE_PG_HAS_SEQUENCE_STYLE": env.get(
+                "FAKE_PG_HAS_SEQUENCE_STYLE", "legacy"
+            ),
         }
     )
 
@@ -102,11 +104,12 @@ def run_case(root, name, fixture, extra_args):
                     statements.append(normalize(json.loads(line)["sql"]))
 
     output_dir = os.path.join(root, "tests", "baseline")
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, name + ".sql.txt")
-    with open(output_path, "w", encoding="utf-8") as handle:
-        for statement in statements:
-            handle.write(statement + "\n")
+    if write_output:
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, name + ".sql.txt")
+        with open(output_path, "w", encoding="utf-8") as handle:
+            for statement in statements:
+                handle.write(statement + "\n")
 
     shutil.rmtree(case_dir, ignore_errors=True)
     return completed, statements

@@ -1,0 +1,28 @@
+select nt.nspname as table_schema,
+         c.relname as table_name,
+         a.attname as column_name,
+         a.attnum as ordinal_position, 
+         format_type(a.atttypid, a.atttypmod) as data_type,
+         c.relkind = 'r' AS is_updatable,
+         a.atttypid in (23, 20) and a.atthasdef and 
+             (select position ( 'nextval(' in pg_catalog.pg_get_expr(adbin,adrelid) ) > 0 and 
+                          position ( '::regclass)' in pg_catalog.pg_get_expr(adbin,adrelid) ) > 0  
+              FROM pg_catalog.pg_attrdef d
+              WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as has_sequence 
+          from pg_catalog.pg_class c join pg_catalog.pg_namespace nt on (c.relnamespace = nt.oid) 
+             join pg_attribute a on (a.attrelid = c.oid) 
+         where c.relname = 'load_test' and nt.nspname = 'public'
+         and a.attnum > 0 and a.attisdropped = 'f'
+         order by a.attnum 
+BEGIN
+select attname from pg_attribute a, gp_distribution_policy p , pg_class c, pg_namespace n where a.attrelid = c.oid and a.attrelid = p.localoid and a.attnum = any (p.attrnums) and c.relnamespace = n.oid and n.nspname = 'public' and c.relname = 'load_test'; 
+SELECT * FROM pg_class WHERE relname LIKE 'temp_gpload_reusable_%%';
+CREATE TEMP TABLE temp_staging_gpload_<UUID> (id integer,name text,amount numeric) DISTRIBUTED BY (id)
+create external table ext_gpload_<UUID>("id" integer,"name" text,"amount" numeric)location('gpfdist://gpload-test:8000/tests/fixtures/data/merge.csv') format'csv' (delimiter ',' null '' escape '"' quote '"' ) 
+INSERT INTO temp_staging_gpload_<UUID> ("id","name","amount") SELECT "id","name","amount" FROM ext_gpload_<UUID>
+update "public"."load_test" into_table set "name"=from_table."name","amount"=from_table."amount" from temp_staging_gpload_<UUID> from_table where into_table."id"=from_table."id"
+INSERT INTO "public"."load_test" ("id","name","amount") (SELECT from_table."id",from_table."name",from_table."amount" FROM (SELECT *, row_number() OVER (PARTITION BY id) AS gpload_row_number FROM temp_staging_gpload_<UUID>) AS from_table LEFT OUTER JOIN "public"."load_test" into_table ON into_table."id"=from_table."id" WHERE into_table."id" IS NULL AND gpload_row_number=1)
+truncate temp_staging_gpload_<UUID>
+COMMIT
+DROP TABLE IF EXISTS temp_staging_gpload_<UUID>
+drop external table if exists ext_gpload_<UUID>

@@ -1,0 +1,19 @@
+select nt.nspname as table_schema,
+         c.relname as table_name,
+         a.attname as column_name,
+         a.attnum as ordinal_position, 
+         format_type(a.atttypid, a.atttypmod) as data_type,
+         c.relkind = 'r' AS is_updatable,
+         a.atttypid in (23, 20) and a.atthasdef and 
+             (select position ( 'nextval(' in pg_catalog.pg_get_expr(adbin,adrelid) ) > 0 and 
+                          position ( '::regclass)' in pg_catalog.pg_get_expr(adbin,adrelid) ) > 0  
+              FROM pg_catalog.pg_attrdef d
+              WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as has_sequence 
+          from pg_catalog.pg_class c join pg_catalog.pg_namespace nt on (c.relnamespace = nt.oid) 
+             join pg_attribute a on (a.attrelid = c.oid) 
+         where c.relname = 'load_test' and nt.nspname = 'public'
+         and a.attnum > 0 and a.attisdropped = 'f'
+         order by a.attnum 
+create external table ext_gpload_<UUID>("id" integer,"name" text,"amount" numeric)location('gpfdist://gpload-test:8000/tests/fixtures/data/insert.txt') format'text' (null '\\N' escape '\\' ) 
+INSERT INTO "public"."load_test" ("id","name","amount") SELECT "id","name","amount" FROM ext_gpload_<UUID>
+drop external table if exists ext_gpload_<UUID>
