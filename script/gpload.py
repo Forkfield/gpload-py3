@@ -993,7 +993,7 @@ def dictKeyToLower(a):
     down case all entries in a list or dict
     """
     if type(a) == list:
-        return map(dictKeyToLower,a)
+        return list(map(dictKeyToLower,a))
     if type(a) == dict:
         b = dict()
         for key,value in a.items():
@@ -1942,7 +1942,7 @@ class gpload:
             # columns which are not found in the table.
             for x in self.from_columns:
                 # Check to see if it already has a mapping value
-                i = filter(lambda a:a[2] == x[0], self.into_columns)
+                i = list(filter(lambda a:a[2] == x[0], self.into_columns))
                 if not i:
                     # Check to see if the target column names match the input column names.
                     for a in self.into_columns:
@@ -2055,7 +2055,7 @@ class gpload:
 			
         columns_num = len(staging_cols)
 
-        staging_cols_str = '-'.join(map(lambda col:'%s-%s' % (quote(quote_unident(col[0])), quote(col[1])), staging_cols))
+        staging_cols_str = '-'.join(list(map(lambda col:'%s-%s' % (quote(quote_unident(col[0])), quote(col[1])), staging_cols)))
 
         distribution_cols_str = '-'.join([quote(quote_unident(col)) for col in distribution_cols])
 		
@@ -2107,7 +2107,7 @@ class gpload:
         
         formatType = self.getconfig('gpload:input:format', str, 'text').lower()
         formatOpts = ""
-        locationStr = ','.join(map(quote,self.locations))
+        locationStr = ','.join(list(map(quote,self.locations)))
 
         delimiterValue = self.getconfig('gpload:input:delimiter', str, False)
         if isinstance(delimiterValue, bool) and delimiterValue == False:
@@ -2184,8 +2184,8 @@ class gpload:
         # get the list of columns to use in the extnernal table
         if not self.from_cols_from_user:
             # don't put values serial columns
-            from_cols = filter(lambda a: a[3] != True,
-                               self.from_columns)
+            from_cols = list(filter(lambda a: a[3] != True,
+                               self.from_columns))
         else:
             from_cols = self.from_columns
 
@@ -2214,7 +2214,7 @@ class gpload:
         # construct a CREATE EXTERNAL TABLE statement and execute it
         self.extSchemaTable = self.get_ext_schematable(self.extSchemaName, self.extTableName)
         sql = "create external table %s" % self.extSchemaTable
-        sql += "(%s)" % ','.join(map(lambda a:'%s %s' % (a[0], a[1]), from_cols))
+        sql += "(%s)" % ','.join(list(map(lambda a:'%s %s' % (a[0], a[1]), from_cols)))
 
         sql += "location(%s) "%locationStr
         sql += "format%s "% quote(formatType)
@@ -2251,7 +2251,7 @@ class gpload:
         # that may be needed in order to create or reuse a temp table            
         if not self.from_cols_from_user:
             # don't put values serial columns
-            from_cols = filter(lambda a: a[3] != True, self.from_columns)
+            from_cols = list(filter(lambda a: a[3] != True, self.from_columns))
         else:
             from_cols = self.from_columns
 
@@ -2311,7 +2311,7 @@ class gpload:
         # MPP-14667 - self.reuse_tables should change one, and only one, aspect of how we build the following table,
         # and that is, whether it's a temp table or not. In other words, is_temp_table = '' iff self.reuse_tables == True.
         sql = 'CREATE %sTABLE %s ' % (is_temp_table, self.staging_table_name)
-        cols = map(lambda a:'%s %s' % (a[0], a[1]), target_columns)
+        cols = list(map(lambda a:'%s %s' % (a[0], a[1]), target_columns))
         sql += "(%s)" % ','.join(cols)
         sql += " DISTRIBUTED BY (%s)" % ', '.join(distcols)
         self.log(self.LOG, sql)
@@ -2359,16 +2359,16 @@ class gpload:
         Handle the INSERT case
         """
         self.log(self.DEBUG, "into columns " + str(self.into_columns))
-        cols = filter(lambda a:a[2]!=None, self.into_columns)
+        cols = list(filter(lambda a:a[2]!=None, self.into_columns))
         
         # only insert non-serial columns, unless the user told us to 
         # insert the serials explicitly
         if not self.from_cols_from_user:
-            cols = filter(lambda a:a[3] == False, cols)
+            cols = list(filter(lambda a:a[3] == False, cols))
 
         sql = 'INSERT INTO %s' % dest
-        sql += ' (%s)' % ','.join(map(lambda a:a[0], cols))
-        sql += ' SELECT %s' % ','.join(map(lambda a:a[2], cols))
+        sql += ' (%s)' % ','.join(list(map(lambda a:a[0], cols)))
+        sql += ' SELECT %s' % ','.join(list(map(lambda a:a[2], cols)))
         sql += ' FROM %s' % self.extSchemaTable
 
         # cktan: progress thread is not reliable. revisit later.
@@ -2555,10 +2555,10 @@ class gpload:
         match = self.map_stuff('gpload:output:match_columns',lambda x,y:'into_table.%s=from_table.%s'%(x,y),0)
         matchColumns = self.getconfig('gpload:output:match_columns',list)
 		
-        cols = filter(lambda a:a[2] != None, self.into_columns)				
+        cols = list(filter(lambda a:a[2] != None, self.into_columns))
         sql = 'INSERT INTO %s ' % self.get_qualified_tablename()
-        sql += '(%s) ' % ','.join(map(lambda a:a[0], cols))
-        sql += '(SELECT %s ' % ','.join(map(lambda a:'from_table.%s' % a[0], cols))
+        sql += '(%s) ' % ','.join(list(map(lambda a:a[0], cols)))
+        sql += '(SELECT %s ' % ','.join(list(map(lambda a:'from_table.%s' % a[0], cols)))
         sql += 'FROM (SELECT *, row_number() OVER (PARTITION BY %s) AS gpload_row_number ' % ','.join(matchColumns)
         sql += 'FROM %s) AS from_table ' % self.staging_table_name
         sql += 'LEFT OUTER JOIN %s into_table ' % self.get_qualified_tablename()
