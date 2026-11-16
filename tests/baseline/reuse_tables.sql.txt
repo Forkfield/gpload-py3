@@ -14,6 +14,7 @@ select nt.nspname as table_schema,
          where c.relname = 'load_test' and nt.nspname = 'public'
          and a.attnum > 0 and a.attisdropped = 'f'
          order by a.attnum 
+select attname from pg_catalog.pg_attribute where attrelid = 'pg_catalog.pg_exttable'::regclass and attname in ('urilocation', 'location', 'logerrors', 'fmterrtbl'); 
 select attrelid::regclass
                  from (
                         select 
@@ -37,7 +38,7 @@ select attrelid::regclass
                     join 
                     pg_exttable pgext 
                     on(pgattr.attrelid = pgext.reloid) 
-                     WHERE pgext.fmterrtbl IS NULL  and pgext.location[1] = 'gpfdist://gpload-test:8000/tests/fixtures/data/reuse.csv'
+                     WHERE pgext.logerrors = false  and pgext.urilocation[1] = 'gpfdist://gpload-test:8000/tests/fixtures/data/reuse.csv'
 and pgext.fmttype = 'c'
                  and pgext.writable = false
                  and pgext.fmtopts like '%delimiter '','' null '''' escape ''"'' quote ''"''%' and pgext.rejectlimit IS NULL group by attrelid having 

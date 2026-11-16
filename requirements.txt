@@ -1,4 +1,5 @@
 PyYAML==6.0.3
 
-# PyGreSQL 6.x requires pg_config (libpq-dev) at build time.
-PyGreSQL==6.2.3
+# Target environment provides psycopg2 for Python 3.10.
+# For a local venv, psycopg2-binary is the easiest install.
+psycopg2-binary==2.9.13

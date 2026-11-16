@@ -63,3 +63,20 @@ def test_insert_failure_exits_2_and_cleans_up(monkeypatch):
 
     assert completed.returncode == 2
     assert any(statement.startswith("drop external table") for statement in statements)
+
+
+def test_insert_failure_reports_gp6_error_file(monkeypatch):
+    monkeypatch.setenv("FAKE_PG_FAIL_INSERT", "1")
+    monkeypatch.setenv(
+        "FAKE_PG_CATALOG",
+        str(ROOT / "tests" / "fixtures" / "catalog_gp6_failure.json"),
+    )
+    name, fixture, extra_args = run_baseline.CASES[0]
+
+    completed, statements = run_baseline.run_case(
+        str(ROOT), name, fixture, extra_args, write_output=False
+    )
+
+    assert completed.returncode == 2
+    assert "error file: bad3.csv" in completed.stdout
+    assert "error line: 3" in completed.stdout

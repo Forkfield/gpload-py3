@@ -11,6 +11,28 @@ GPD_PORT_RANGE=$9
 ERROR_LIMIT=${10}
 TMP_CONF=/tmp/gpload.yaml.tmp.${11}
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+GPLOAD_SCRIPT=${GPLOAD_SCRIPT:-$SCRIPT_DIR/gpload.py}
+PYTHON=${PYTHON:-python3}
+
+# greenplum_path.sh puts $GPHOME/lib first in LD_LIBRARY_PATH.  The system
+# python3 psycopg2 is linked against the OS libpq and fails to import against
+# the older Greenplum libpq ("undefined symbol: PQsslAttribute").  gpload.py
+# starts gpfdist from its own shell which sources greenplum_path.sh again, so
+# removing the GPHOME entries here only affects the Python process.
+clean_ld_library_path() {
+  [ -n "$GPHOME" ] || return 0
+  local dir clean
+  local IFS=:
+  for dir in $LD_LIBRARY_PATH; do
+    case "$dir" in
+      "$GPHOME"/*) ;;
+      *) clean="${clean:+$clean:}$dir" ;;
+    esac
+  done
+  export LD_LIBRARY_PATH="$clean"
+}
+
 echo "================================"
 echo "  start at    :  `date '+%Y-%m-%d %H:%M:%S'` ..."
 echo "  data_path   :  $DATA_DIR"
@@ -78,7 +100,12 @@ for database in `ls $DATA_DIR` ; do
       fi
 
       echo '------------------------------' >> $LOG_DIR/gpload.log
-      timeout 600  gpload -f $TMP_CONF -l $LOG_DIR/gpload.log
+      clean_ld_library_path
+      if [ -f "$GPLOAD_SCRIPT" ]; then
+        timeout 600 "$PYTHON" "$GPLOAD_SCRIPT" -f "$TMP_CONF" -l "$LOG_DIR/gpload.log"
+      else
+        timeout 600 gpload -f "$TMP_CONF" -l "$LOG_DIR/gpload.log"
+      fi
       retv=$?
       if [ $retv -eq 0 ] ; then
         for file in $files ; do
@@ -87,8 +114,15 @@ for database in `ls $DATA_DIR` ; do
           rm -f $file
         done
 
-      elif [ $retv -ge 2 ] ; then
-        load_ret=2
+      elif [ $retv -ge 1 ] ; then
+        # exit 1 means "succeeded with warnings": some rows were rejected.
+        # Quarantine the file instead of leaving it in place, otherwise the
+        # next run would load the accepted rows again and duplicate data.
+        if [ $retv -eq 1 ] ; then
+          load_ret=1
+        else
+          load_ret=2
+        fi
         rm -f ${LOG_DIR}/latest_failed_file
         failed_path=${data_path}/failed/
         mkdir -p $failed_path

@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "script" / "gpload.py"
 FAKE_PG = ROOT / "tests" / "fake_pg"
+FAKE_PSYCOPG2 = ROOT / "tests" / "fake_psycopg2"
 
 
 def _converted_source(source):
@@ -34,9 +35,12 @@ def load_gpload():
     except SyntaxError:
         code = compile(_converted_source(source), str(SCRIPT), "exec")
 
-    fake_pg = str(FAKE_PG)
+    fake_pg = str(FAKE_PG / "pygresql")
     if fake_pg not in sys.path:
         sys.path.insert(0, fake_pg)
+    fake_psycopg2 = str(FAKE_PSYCOPG2)
+    if fake_psycopg2 not in sys.path:
+        sys.path.insert(0, fake_psycopg2)
 
     module = types.ModuleType("gpload_under_test")
     module.__file__ = str(SCRIPT)

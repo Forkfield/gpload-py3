@@ -53,7 +53,8 @@ drop external table if exists ext_gpload_<UUID>
 
 ```sql
 BEGIN
-select attname from pg_attribute a, gp_distribution_policy p , pg_class c, pg_namespace n where a.attrelid = c.oid and a.attrelid = p.localoid and a.attnum = any (p.attrnums) and c.relnamespace = n.oid and n.nspname = 'public' and c.relname = 'load_test'; 
+select attname from pg_catalog.pg_attribute where attrelid = 'pg_catalog.gp_distribution_policy'::regclass and attname in ('distkey', 'attrnums') order by attname desc limit 1; 
+select attname from pg_attribute a, gp_distribution_policy p , pg_class c, pg_namespace n where a.attrelid = c.oid and a.attrelid = p.localoid and a.attnum = any (p.distkey) and c.relnamespace = n.oid and n.nspname = 'public' and c.relname = 'load_test'; 
 SELECT * FROM pg_class WHERE relname LIKE 'temp_gpload_reusable_%%';
 CREATE TEMP TABLE temp_staging_gpload_<UUID> (id integer,name text,amount numeric) DISTRIBUTED BY (id)
 create external table ext_gpload_<UUID>("id" integer,"name" text,"amount" numeric) location('gpfdist://gpload-test:8000/tests/fixtures/data/update.csv') format'csv' (delimiter ',' null '' escape '"' quote '"' ) 
@@ -69,7 +70,8 @@ drop external table if exists ext_gpload_<UUID>
 
 ```sql
 BEGIN
-select attname from pg_attribute a, gp_distribution_policy p , pg_class c, pg_namespace n where a.attrelid = c.oid and a.attrelid = p.localoid and a.attnum = any (p.attrnums) and c.relnamespace = n.oid and n.nspname = 'public' and c.relname = 'load_test'; 
+select attname from pg_catalog.pg_attribute where attrelid = 'pg_catalog.gp_distribution_policy'::regclass and attname in ('distkey', 'attrnums') order by attname desc limit 1; 
+select attname from pg_attribute a, gp_distribution_policy p , pg_class c, pg_namespace n where a.attrelid = c.oid and a.attrelid = p.localoid and a.attnum = any (p.distkey) and c.relnamespace = n.oid and n.nspname = 'public' and c.relname = 'load_test'; 
 SELECT * FROM pg_class WHERE relname LIKE 'temp_gpload_reusable_%%';
 CREATE TEMP TABLE temp_staging_gpload_<UUID> (id integer,name text,amount numeric) DISTRIBUTED BY (id)
 create external table ext_gpload_<UUID>("id" integer,"name" text,"amount" numeric) location('gpfdist://gpload-test:8000/tests/fixtures/data/merge.csv') format'csv' (delimiter ',' null '' escape '"' quote '"' ) 

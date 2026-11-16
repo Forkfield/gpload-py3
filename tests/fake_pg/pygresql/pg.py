@@ -114,8 +114,14 @@ class DB:
         if low.startswith("select 1 from pg_class c, pg_namespace n"):
             return Result([[1]])
 
+        if "gp_distribution_policy" in low and low.startswith("select attname from pg_catalog.pg_attribute"):
+            return Result([[self._catalog.get("dist_key_column", "distkey")]])
+
         if "gp_distribution_policy" in low and "select attname" in low:
             return Result([[name] for name in self._catalog.get("dist_key", [])])
+
+        if low.startswith("select attname from pg_catalog.pg_attribute") and "pg_exttable" in low:
+            return Result([[name] for name in self._catalog.get("pg_exttable_columns", ["urilocation", "logerrors"])])
 
         if "ext_gpload_reusable_" in low and "pg_exttable" in low:
             return Result([[name] for name in self._catalog.get("reuse_external_tables", [])])

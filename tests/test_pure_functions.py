@@ -31,6 +31,59 @@ def test_decode_unicode_escape(gpload):
     )
 
 
+def test_quote_copy_value_keeps_backslashes(gpload):
+    assert gpload.quote_copy_value("|") == "'|'"
+    assert gpload.quote_copy_value("\\N") == "E'\\\\N'"
+    assert gpload.quote_copy_value("\\") == "E'\\\\'"
+    assert gpload.quote_copy_value("a'b") == "'a''b'"
+
+
+def test_error_log_filename(gpload):
+    assert (
+        gpload.error_log_filename(
+            "gpfdist://localhost:8000/data/db/table/1.csv [data/db/table/1.csv]"
+        )
+        == "1.csv"
+    )
+    assert gpload.error_log_filename("gpfdist://host:8000/dir/ [2.csv]") == "2.csv"
+    assert gpload.error_log_filename("data/db/table/3.csv") == "3.csv"
+    assert gpload.error_log_filename("") == ""
+
+
+def test_report_errors_sets_summary_count_for_non_reuse(gpload):
+    obj = object.__new__(gpload.gpload)
+    obj.log_errors = True
+    obj.reuse_tables = False
+    obj.exitValue = 0
+    obj.WARN = 2
+    obj.messages = []
+    obj.log = lambda _level, message: obj.messages.append(message)
+    obj.count_errors = lambda: 1
+
+    gpload.NUM_WARN_ROWS = 0
+    obj.report_errors()
+
+    assert gpload.NUM_WARN_ROWS == 1
+    assert obj.exitValue == 1
+
+
+def test_report_errors_uses_notice_count_without_log_errors(gpload):
+    obj = object.__new__(gpload.gpload)
+    obj.log_errors = False
+    obj.reuse_tables = False
+    obj.exitValue = 0
+    obj.WARN = 2
+    obj.messages = []
+    obj.log = lambda _level, message: obj.messages.append(message)
+    obj.count_errors = lambda: 0
+
+    gpload.NUM_WARN_ROWS = 2
+    obj.report_errors()
+
+    assert obj.exitValue == 1
+    assert gpload.NUM_WARN_ROWS == 2
+
+
 def test_database_text_helpers(gpload):
     assert gpload.to_text(b"text") == "text"
     assert gpload.to_text("text") == "text"
@@ -137,6 +190,39 @@ def test_staging_conditions_hash_ascii(gpload):
         gpload.staging_conditions_hash(conditions)
         == "f5f18fa6ce286af2a589cdb2d37636b7"
     )
+
+
+def test_notice_processor_supports_notice_receiver(gpload):
+    class Notice:
+        def __init__(self, message):
+            self.message = message
+
+    class ModernDB:
+        def __init__(self):
+            self.receiver = None
+
+        def set_notice_receiver(self, receiver):
+            self.receiver = receiver
+
+    class FakeGploadWithDB:
+        db = ModernDB()
+
+    gpload.NUM_WARN_ROWS = 0
+    gpload._install_notice_receiver(FakeGploadWithDB.db)
+    FakeGploadWithDB.db.receiver(
+        Notice(
+            "NOTICE:  found 7 data formatting errors "
+            "(7 or more input rows), rejected related input data"
+        )
+    )
+
+    gpload.notice_processor(FakeGploadWithDB())
+    assert gpload.NUM_WARN_ROWS == 7
+
+    gpload.NUM_WARN_ROWS = 0
+    gpload.PG_NOTICES = ["NOTICE:  Found 3 data formatting errors (3 rows)"]
+    gpload.notice_processor(FakeGploadWithDB())
+    assert gpload.NUM_WARN_ROWS == 3
 
 
 def test_valid_tokens_shape(gpload):

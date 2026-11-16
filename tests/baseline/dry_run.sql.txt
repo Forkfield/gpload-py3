@@ -14,5 +14,5 @@ select nt.nspname as table_schema,
          where c.relname = 'load_test' and nt.nspname = 'public'
          and a.attnum > 0 and a.attisdropped = 'f'
          order by a.attnum 
-create external table ext_gpload_<UUID>("id" integer,"name" text,"amount" numeric)location('gpfdist://gpload-test:8000/tests/fixtures/data/dry_run.txt') format'text' (null '\\N' escape '\\' ) 
+create external table ext_gpload_<UUID>("id" integer,"name" text,"amount" numeric)location('gpfdist://gpload-test:8000/tests/fixtures/data/dry_run.txt') format'text' (null E'\\N' escape E'\\' ) 
 drop external table if exists ext_gpload_<UUID>

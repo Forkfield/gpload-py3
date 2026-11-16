@@ -33,18 +33,28 @@ except ImportError:
 
 import platform
 try:
-    from pygresql import pg
-except Exception as e:
-    from struct import calcsize
-    sysWordSize = calcsize("P") * 8
-    if (platform.system()) in ['Windows', 'Microsoft'] and (sysWordSize == 64): 
-        errorMsg = "gpload appears to be running in 64-bit Python under Windows.\n"
-        errorMsg = errorMsg + "Currently only 32-bit Python is supported. Please \n"
-        errorMsg = errorMsg + "reinstall a 32-bit Python interpreter.\n"
-    else:
-        errorMsg = "gpload was unable to import The PyGreSQL Python module (pg.py) - %s\n" % str(e)
-    sys.stderr.write(str(errorMsg))
-    sys.exit(2)
+    import psycopg2
+except ImportError:
+    psycopg2 = None
+
+pg = None
+if psycopg2 is None:
+    try:
+        from pygresql import pg
+    except Exception:
+        try:
+            import pg
+        except Exception as e:
+            from struct import calcsize
+            sysWordSize = calcsize("P") * 8
+            if (platform.system()) in ['Windows', 'Microsoft'] and (sysWordSize == 64):
+                errorMsg = "gpload appears to be running in 64-bit Python under Windows.\n"
+                errorMsg = errorMsg + "Currently only 32-bit Python is supported. Please \n"
+                errorMsg = errorMsg + "reinstall a 32-bit Python interpreter.\n"
+            else:
+                errorMsg = "gpload was unable to import psycopg2 or PyGreSQL (pg.py) - %s\n" % str(e)
+            sys.stderr.write(str(errorMsg))
+            sys.exit(2)
 
 import hashlib
 import codecs
@@ -65,6 +75,100 @@ if windowsPlatform == False:
 EXECNAME = 'gpload'
 
 NUM_WARN_ROWS = 0
+
+# PyGreSQL versions differ: the Greenplum build exposes DB.notices(),
+# while the upstream package only exposes a notice receiver callback.
+PG_NOTICES = []
+
+
+def _notice_text(notice):
+    message = getattr(notice, 'message', notice)
+    if isinstance(message, bytes):
+        message = message.decode('utf-8', 'replace')
+    return str(message)
+
+
+def _pg_notice_receiver(notice):
+    try:
+        PG_NOTICES.append(_notice_text(notice))
+    except Exception:
+        pass
+
+
+def _get_notices(db):
+    if hasattr(db, 'notices'):
+        try:
+            return list(db.notices())
+        except Exception:
+            return []
+    return list(PG_NOTICES)
+
+
+def _install_notice_receiver(db):
+    if not hasattr(db, 'set_notice_receiver'):
+        return
+    try:
+        del PG_NOTICES[:]
+        db.set_notice_receiver(_pg_notice_receiver)
+    except Exception:
+        pass
+
+
+class QueryResult:
+    def __init__(self, rows, columns, rowcount):
+        self.rows = rows
+        self.columns = columns
+        self.rowcount = rowcount
+
+    def getresult(self):
+        return self.rows
+
+    def dictresult(self):
+        return [dict(zip(self.columns, row)) for row in self.rows]
+
+    def __iter__(self):
+        return iter(self.rows)
+
+    def __str__(self):
+        return str(self.rowcount)
+
+
+class Psycopg2DB:
+    def __init__(self, dbname, host, port, user, passwd):
+        params = {'dbname': dbname}
+        if host:
+            params['host'] = host
+        if port:
+            params['port'] = port
+        if user:
+            params['user'] = user
+        if passwd is not None:
+            params['password'] = passwd
+        self._conn = psycopg2.connect(**params)
+        self._conn.autocommit = True
+
+    def close(self):
+        self._conn.close()
+
+    def query(self, sql):
+        cur = self._conn.cursor()
+        try:
+            cur.execute(sql)
+            columns = [d[0] for d in cur.description] if cur.description else []
+            rows = cur.fetchall() if cur.description else []
+            return QueryResult(rows, columns, cur.rowcount)
+        finally:
+            cur.close()
+
+    def notices(self):
+        return list(getattr(self._conn, 'notices', []))
+
+
+def db_connect(dbname, host, port, user, passwd):
+    if psycopg2 is not None:
+        return Psycopg2DB(dbname, host, port, user, passwd)
+    return pg.DB(dbname=dbname, host=host, port=port, user=user, passwd=passwd)
+
 
 # Mapping for validing our configuration file. We're only concerned with
 # keys -- stuff left of ':'. It gets complex in two cases: firstly when 
@@ -297,12 +401,14 @@ def notice_processor(self):
        # This means we will not get any warnings on windows (MPP10989).
        return
 
-    theNotices = self.db.notices()
-    r = re.compile(r"^NOTICE:  Found (\d+) data formatting errors.*")
+    theNotices = _get_notices(self.db)
+    # Greenplum 6 lowercases the first word: "NOTICE:  found N data
+    # formatting errors (N or more input rows), rejected related input data".
+    r = re.compile(r"^NOTICE:\s+found (\d+) data formatting errors", re.IGNORECASE)
     messageNumber = 0
     m = None
     while messageNumber < len(theNotices) and m == None:
-       aNotice = theNotices[messageNumber]
+       aNotice = _notice_text(theNotices[messageNumber])
        m = r.match(aNotice)
        messageNumber = messageNumber + 1
        if m:
@@ -414,6 +520,20 @@ def quote(a):
     return "'"+a.replace("'","''").replace('\\','\\\\')+"'"
 
 
+def quote_copy_value(a):
+    """Quote a COPY option value (delimiter, null, escape, quote).
+
+    quote() doubles backslashes for ordinary SQL literals, but COPY options
+    compare against the raw input bytes and ESCAPE requires exactly one
+    character.  With standard_conforming_strings=on, '\\\\N' therefore became
+    a three-character NULL string instead of the usual two-character \\N.
+    E'' keeps the value unambiguous on both settings.
+    """
+    if '\\' in a:
+        return "E'" + a.replace('\\', '\\\\').replace("'", "''") + "'"
+    return quote(a)
+
+
 def decode_unicode_escape(a):
     return codecs.decode(a, 'unicode_escape')
 
@@ -430,11 +550,41 @@ def to_text(value):
     return value
 
 
+def escape_string(value):
+    value = to_text(value)
+    return value.replace('\\', '\\\\').replace("'", "''")
+
+
 def to_bool(value):
     value = to_text(value)
     if isinstance(value, str):
         return value.lower() not in ('', 'f', 'false', '0')
     return bool(value)
+
+
+def error_log_filename(value):
+    """Return the source file name from gp_read_error_log(filename).
+
+    Older Greenplum releases returned values like
+    ``gpfdist://host:port/dir/ [1.csv]``; Greenplum 6 returns
+    ``gpfdist://host:port/dir/file.csv [dir/file.csv]``.  The caller only
+    needs the file name because load.sh resolves it against data_path.
+    """
+    value = to_text(value)
+    if not value:
+        return value
+
+    # GP6+ keeps the original path in square brackets.
+    match = re.search(r"\[([^\]]+)\]", value)
+    candidate = match.group(1) if match else value
+
+    # Drop gpfdist://host:port/ and gpfdists://... prefixes when present.
+    candidate = re.sub(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/]*/", "", candidate)
+    candidate = candidate.replace('\\', '/').strip()
+
+    if not candidate:
+        return value
+    return os.path.basename(candidate)
 
 
 def splitPgpassLine(a):
@@ -777,7 +927,7 @@ class gpload:
             self.log(self.INFO, 'gpload has the -D option, so it does not actually load any data')
 
         try:
-            f = open(configFilename,'r', encoding='utf-8')
+            f = open(configFilename,'rb')
         except IOError as e:
             self.log(self.ERROR, "could not open configuration file: %s" % e)
 
@@ -1203,7 +1353,7 @@ class gpload:
                         self.log(self.ERROR, 'cannot find greenplum environment ' +
                                     'file: environment misconfigured')
 
-                    cmd = 'source %s ; exec ' % srcfile
+                    cmd = '. %s ; exec ' % srcfile
                     cmd += ' '.join(popenList)
                     needshell = True
 
@@ -1323,12 +1473,13 @@ class gpload:
                      " host=" + str(self.options.h) +
                      " port=" + str(self.options.p) +
                      " database=" + str(self.options.d))
-            self.db = pg.DB( dbname=self.options.d
-                           , host=self.options.h 
-                           , port=self.options.p
-                           , user=self.options.U
-                           , passwd=self.options.password
-                           )
+            self.db = db_connect( dbname=self.options.d
+                                , host=self.options.h
+                                , port=self.options.p
+                                , user=self.options.U
+                                , passwd=self.options.password
+                                )
+            _install_notice_receiver(self.db)
             self.log(self.DEBUG, "Successfully connected to database")
         except Exception as e:
             errorMessage = str(e)
@@ -1509,6 +1660,17 @@ class gpload:
     # such a table exists.
     # 
     def get_reuse_exttable_query(self, formatType, formatOpts, limitStr, from_cols, schemaName, log_errors):
+        # Greenplum 6 changed pg_exttable: location was renamed to
+        # urilocation and the fmterrtbl error-table oid was replaced by the
+        # logerrors boolean. Detect the available columns first so the same
+        # code works on both old and new catalog layouts.
+        ext_col_sql = "select attname from pg_catalog.pg_attribute " + \
+                      "where attrelid = 'pg_catalog.pg_exttable'::regclass " + \
+                      "and attname in ('urilocation', 'location', 'logerrors', 'fmterrtbl'); "
+        ext_cols = set(to_text((row)[0]) for row in self.db.query(to_db_text(ext_col_sql)).getresult())
+        location_col = 'urilocation' if 'urilocation' in ext_cols else 'location'
+        error_col = 'logerrors' if 'logerrors' in ext_cols else 'fmterrtbl'
+
         sqlFormat = """select attrelid::regclass
                  from (
                         select 
@@ -1552,12 +1714,18 @@ class gpload:
         sql = sqlFormat % (joinStr, conditionStr)
 
         if log_errors:
-            sql += " WHERE pgext.fmterrtbl = pgext.reloid "
+            if error_col == 'logerrors':
+                sql += " WHERE pgext.logerrors = true "
+            else:
+                sql += " WHERE pgext.fmterrtbl = pgext.reloid "
         else:
-            sql += " WHERE pgext.fmterrtbl IS NULL " 
+            if error_col == 'logerrors':
+                sql += " WHERE pgext.logerrors = false "
+            else:
+                sql += " WHERE pgext.fmterrtbl IS NULL " 
 
         for i, l in enumerate(self.locations):
-            sql += " and pgext.location[%s] = %s\n" % (i + 1, quote(l))
+            sql += " and pgext.%s[%s] = %s\n" % (location_col, i + 1, quote(l))
              
         sql+= """and pgext.fmttype = %s
                  and pgext.writable = false
@@ -1670,16 +1838,16 @@ class gpload:
                 sys.exit(2);
         else:
             formatOpts += "delimiter %s " % \
-                quote(self.getconfig('gpload:input:delimiter', str))
+                quote_copy_value(self.getconfig('gpload:input:delimiter', str))
 
         nullas = self.getconfig('gpload:input:null_as', str, False)
         self.log(self.DEBUG, "null " + str(nullas))
         if nullas != False: # could be empty string
-            formatOpts += "null %s " % quote(nullas)
+            formatOpts += "null %s " % quote_copy_value(nullas)
         elif formatType=='csv':
             formatOpts += "null '' "
         else:
-            formatOpts += "null %s " % quote(r"\N")
+            formatOpts += "null %s " % quote_copy_value(r"\N")
 
         esc = self.getconfig('gpload:input:escape', None, None)
         if esc:
@@ -1690,16 +1858,16 @@ class gpload:
                     self.control_file_error("ESCAPE cannot be set to OFF in CSV mode")
                 formatOpts += "escape 'off' "
             else:
-                formatOpts += "escape %s " % quote(esc)
+                formatOpts += "escape %s " % quote_copy_value(esc)
         else:
             if formatType=='csv':
-                formatOpts += "escape %s " % quote(self.getconfig('gpload:input:quote', 
+                formatOpts += "escape %s " % quote_copy_value(self.getconfig('gpload:input:quote', 
                     str, extraStuff='for csv formatted data'))
             else:
-                formatOpts += "escape %s " % quote("\\")
+                formatOpts += "escape %s " % quote_copy_value("\\")
 
         if formatType=='csv':
-            formatOpts += "quote %s " % quote(self.getconfig('gpload:input:quote', 
+            formatOpts += "quote %s " % quote_copy_value(self.getconfig('gpload:input:quote', 
                     str, extraStuff='for csv formatted data'))
 
         if self.getconfig('gpload:input:header',bool,False):
@@ -1869,12 +2037,16 @@ class gpload:
         if self.log_errors and not self.options.D:
             # make sure we only get errors for our own instance
             if not self.reuse_tables:
-                queryStr = "select count(*) from gp_read_error_log('%s')" % pg.escape_string(self.extTableName)
+                queryStr = "select count(*) from gp_read_error_log('%s')" % escape_string(self.extTableName)
                 results = self.db.query(to_db_text(queryStr)).getresult()
                 return (results[0])[0]
             else: # reuse_tables
-                queryStr = "select cmdtime, count(*) from gp_read_error_log('%s') group by cmdtime order by cmdtime desc limit 1" % pg.escape_string(self.extTableName)
+                queryStr = "select cmdtime, count(*) from gp_read_error_log('%s') group by cmdtime order by cmdtime desc limit 1" % escape_string(self.extTableName)
                 results = self.db.query(to_db_text(queryStr)).getresult()
+                if not results:
+                    # No formatting errors were recorded for this external
+                    # table, so there is nothing to report.
+                    return 0
                 self.lastcmdtime = to_text((results[0])[0])
                 global NUM_WARN_ROWS
                 NUM_WARN_ROWS = (results[0])[1]
@@ -1883,17 +2055,27 @@ class gpload:
     
     def report_errors(self):
         errors = self.count_errors()
-        if errors==1:
+        global NUM_WARN_ROWS
+        # Without LOG ERRORS gp_read_error_log stays empty; the
+        # "found N data formatting errors" NOTICE is the only signal that
+        # rows were rejected. Use whichever source reports more so rejected
+        # rows are never treated as a clean success.
+        bad_rows = errors if errors else NUM_WARN_ROWS
+        if self.log_errors and errors:
+            NUM_WARN_ROWS = errors
+        if bad_rows == 1:
             self.log(self.WARN, '1 bad row')
-        elif errors:
-            self.log(self.WARN, '%d bad rows'%errors)
+        elif bad_rows:
+            self.log(self.WARN, '%d bad rows' % bad_rows)
+        if bad_rows:
+            NUM_WARN_ROWS = bad_rows
 
         # error message is also deleted if external table is dropped.
         # if reuse_table is set, error message is not deleted. 
         if errors and self.log_errors and self.reuse_tables:
             self.log(self.WARN, "Please use following query to access the detailed error")
-            self.log(self.WARN, "select * from gp_read_error_log('{0}') where cmdtime = '{1}'".format(pg.escape_string(self.extTableName), self.lastcmdtime))
-        self.exitValue = 1 if errors else 0
+            self.log(self.WARN, "select * from gp_read_error_log('{0}') where cmdtime = '{1}'".format(escape_string(self.extTableName), self.lastcmdtime))
+        self.exitValue = 1 if bad_rows else 0
 
 
     def do_insert(self, dest):
@@ -1919,17 +2101,21 @@ class gpload:
                 self.rowsInserted = self.db.query(to_db_text(sql))
             except Exception as e:
                 # We need to be a bit careful about the error since it may contain non-unicode characters
+                global NUM_WARN_ROWS
                 strE = str(e)
                 strF = str(sql)
                 
                 # report error file and linenum
-                queryStr = "select filename, linenum from gp_read_error_log('%s')" % pg.escape_string(self.extTableName)
+                queryStr = "select filename, linenum from gp_read_error_log('%s')" % escape_string(self.extTableName)
                 results = self.db.query(to_db_text(queryStr)).getresult()
-                errfile = to_text((results[0])[0])
-                errlinenum = str((results[0])[1])
-                errfile = re.findall(r"/[0-9]*.csv\]", errfile)[0][1:-1]
-                self.log(self.WARN, "error file: " + errfile)
-                self.log(self.WARN, "error line: " + errlinenum)
+                if results:
+                    NUM_WARN_ROWS = len(results)
+                    errfile = error_log_filename((results[0])[0])
+                    errlinenum = str((results[0])[1])
+                    self.log(self.WARN, "error file: " + errfile)
+                    self.log(self.WARN, "error line: " + errlinenum)
+                else:
+                    self.log(self.WARN, "no rows found in gp_read_error_log for " + self.extTableName)
 
                 self.log(self.ERROR, strE + ' encountered while running ' + strF)
 
@@ -2027,10 +2213,25 @@ class gpload:
                 
         # NOTE: this query should be re-written better. the problem is that it is
         # not possible to perform a cast on a table name with spaces...
+        # Older Greenplum versions expose the distribution key as
+        # gp_distribution_policy.attrnums, while GP 6.25+ renamed it to
+        # gp_distribution_policy.distkey. Detect the column name first so the
+        # transaction is never aborted by a failed catalog query.
+        distkey_col_sql = "select attname from pg_catalog.pg_attribute " + \
+                          "where attrelid = 'pg_catalog.gp_distribution_policy'::regclass " + \
+                          "and attname in ('distkey', 'attrnums') " + \
+                          "order by attname desc limit 1; "
+        distkey_cols = self.db.query(to_db_text(distkey_col_sql)).getresult()
+        distkey_col = 'attrnums'
+        if len(distkey_cols) > 0:
+            distkey_col = to_text((distkey_cols[0])[0])
+        if distkey_col not in ('distkey', 'attrnums'):
+            distkey_col = 'attrnums'
+
         sql = "select attname from pg_attribute a, gp_distribution_policy p , pg_class c, pg_namespace n "+\
               "where a.attrelid = c.oid and " + \
               "a.attrelid = p.localoid and " + \
-              "a.attnum = any (p.attrnums) and " + \
+              "a.attnum = any (p.%s) and " % distkey_col + \
               "c.relnamespace = n.oid and " + \
               "n.nspname = '%s' and c.relname = '%s'; " % (quote_unident(self.schema), quote_unident(self.table))
               

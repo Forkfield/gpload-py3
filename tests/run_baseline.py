@@ -56,7 +56,12 @@ def run_case(root, name, fixture, extra_args, write_output=True):
             "HOME": home_dir,
             "PGPASSWORD": "fake-password",
             "PYTHONPATH": os.pathsep.join(
-                [os.path.join(root, "tests", "fake_pg"), env.get("PYTHONPATH", "")]
+                [
+                    os.path.join(root, "tests", "fake_psycopg2"),
+                    os.path.join(root, "tests", "fake_pg", "pygresql"),
+                    os.path.join(root, "tests", "fake_pg"),
+                    env.get("PYTHONPATH", ""),
+                ]
             ).rstrip(os.pathsep),
             "GPHOME": os.path.join(root, "tests", "fake_greenplum"),
             "PATH": os.pathsep.join(

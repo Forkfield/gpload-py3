@@ -1,0 +1,18 @@
+{
+  "schema": "public",
+  "dist_key": ["id"],
+  "columns": [
+    {"name": "id", "type": "integer", "has_sequence": false},
+    {"name": "name", "type": "text", "has_sequence": false},
+    {"name": "amount", "type": "numeric", "has_sequence": false}
+  ],
+  "reuse_external_tables": [],
+  "reuse_staging_tables": [],
+  "error_count": 2,
+  "error_rows": [
+    ["gpfdist://localhost:8000/data/db/table/bad3.csv [data/db/table/bad3.csv]", 3]
+  ],
+  "notices": [],
+  "dist_key_column": "distkey",
+  "pg_exttable_columns": ["urilocation", "logerrors"]
+}

@@ -15,7 +15,7 @@ select nt.nspname as table_schema,
          and a.attnum > 0 and a.attisdropped = 'f'
          order by a.attnum 
 select 'before'
-create external table ext_gpload_<UUID>("id" integer,"name" text,"amount" numeric)location('gpfdist://gpload-test:8000/tests/fixtures/data/sql_before_after.txt') format'text' (null '\\N' escape '\\' ) 
+create external table ext_gpload_<UUID>("id" integer,"name" text,"amount" numeric)location('gpfdist://gpload-test:8000/tests/fixtures/data/sql_before_after.txt') format'text' (null E'\\N' escape E'\\' ) 
 INSERT INTO "public"."load_test" ("id","name","amount") SELECT "id","name","amount" FROM ext_gpload_<UUID>
 select 'after'
 drop external table if exists ext_gpload_<UUID>
