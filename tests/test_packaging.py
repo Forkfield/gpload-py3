@@ -45,7 +45,13 @@ def test_version_does_not_load_db_driver(gpload, monkeypatch, capsys):
         gpload.main(["--version"])
 
     assert exc.value.code == 0
-    assert "gpload version" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert err.strip() == "gpload version " + gpload.__version__
+
+
+def test_version_matches_package_metadata(gpload):
+    assert gpload.__version__.count(".") == 2
+    assert gpload.__version__.split(".")[0].isdigit()
 
 
 def test_help_does_not_load_db_driver(gpload, monkeypatch, capsys):
@@ -59,3 +65,21 @@ def test_help_does_not_load_db_driver(gpload, monkeypatch, capsys):
 
     assert exc.value.code == 2
     assert "gpload [options] -f configuration file" in capsys.readouterr().out
+
+
+def test_long_help_exits_zero(gpload, capsys):
+    with pytest.raises(SystemExit) as exc:
+        gpload.main(["--help"])
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "gpload [options] -f configuration file" in out
+    assert "--help" in out
+
+
+def test_pyproject_takes_version_from_module():
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    text = pyproject.read_text(encoding="utf-8")
+
+    assert 'dynamic = ["version"]' in text
+    assert 'version = {attr = "gpload.__version__"}' in text

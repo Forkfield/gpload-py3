@@ -23,8 +23,11 @@ Options:
     --no_auto_trans: do not wrap gpload in transaction
     --gpfdist_timeout timeout: gpfdist timeout value
     --version: print version number and exit
+    --help: print this help and exit
     -?: help
 '''
+
+__version__ = '0.1.2'
 
 import re
 import sys
@@ -531,7 +534,7 @@ def cli_help():
         if f: f.close()
 
 #============================================================
-def usage(error = None):
+def usage(error = None, status = 2):
     print(cli_help() or __doc__)
     sys.stdout.flush()
     if error:
@@ -539,7 +542,7 @@ def usage(error = None):
         sys.stderr.write('\n')
         sys.stderr.flush()
   
-    sys.exit(2)
+    sys.exit(status)
 
 def quote(a):
     """
@@ -888,7 +891,7 @@ class gpload:
                         argv = argv[1:]
                         seenq = True
                     elif argv[0]=='--version':
-                        sys.stderr.write("gpload version $Revision$\n")
+                        sys.stderr.write("gpload version %s\n" % __version__)
                         sys.exit(0)
                     elif argv[0]=='-v':
                         self.options.qv = self.LOG
@@ -916,6 +919,8 @@ class gpload:
                     elif argv[0]=='--no_auto_trans':
                         self.options.no_auto_trans = True 
                         argv = argv[1:]
+                    elif argv[0]=='--help':
+                        usage(status = 0)
                     elif argv[0]=='-?':
                         usage()
                     else:

@@ -116,6 +116,7 @@ Options:
 --no_auto_trans do not wrap gpload in transaction
 --gpfdist_timeout timeout
 --version       print version number and exit
+--help          print this help and exit
 -?              help
 ```
 
@@ -411,5 +412,6 @@ python -m twine upload --repository testpypi dist/*
 python -m twine upload dist/*
 ```
 
-Bump `version` in `pyproject.toml` before each upload: PyPI does not allow
-replacing a version that has already been published.
+Bump `__version__` in `script/gpload.py` before each upload: `pyproject.toml`
+reads it, and PyPI does not allow replacing a version that has already been
+published.
