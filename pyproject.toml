@@ -43,6 +43,8 @@ postgres = ["psycopg2-binary>=2.9"]
 Homepage = "https://github.com/Forkfield/gpload-py3"
 Repository = "https://github.com/Forkfield/gpload-py3"
 Issues = "https://github.com/Forkfield/gpload-py3/issues"
+Releases = "https://github.com/Forkfield/gpload-py3/releases"
+PyPI = "https://pypi.org/project/gpload-py3/"
 
 [project.scripts]
 gpload-py3 = "gpload:main"

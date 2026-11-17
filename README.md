@@ -1,5 +1,9 @@
 # gpload-py3
 
+[![PyPI version](https://img.shields.io/pypi/v/gpload-py3.svg)](https://pypi.org/project/gpload-py3/)
+[![Python versions](https://img.shields.io/pypi/pyversions/gpload-py3.svg)](https://pypi.org/project/gpload-py3/)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 Python 3 port of the Greenplum `gpload` utility. It loads CSV/text files
 into Greenplum through `gpfdist`, supporting `insert`, `update` and `merge`
 modes, reusable staging/external tables, `LOG_ERRORS`, transforms and SSL.
@@ -35,7 +39,7 @@ requirements-dev.txt    test dependencies (pytest)
 
 ## Installation
 
-From PyPI:
+From PyPI ([pypi.org/project/gpload-py3](https://pypi.org/project/gpload-py3/)):
 
 ```bash
 pip install gpload-py3
@@ -65,6 +69,9 @@ For development from a checkout:
 python3 -m venv .venv
 .venv/bin/pip install -e '.[postgres]'
 ```
+
+Releases and release notes are published on
+[GitHub Releases](https://github.com/Forkfield/gpload-py3/releases).
 
 ## Requirements
 
