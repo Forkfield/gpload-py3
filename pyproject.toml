@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpload-py3"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python 3 port of the Greenplum gpload utility with a programmatic API"
 readme = "README.md"
 requires-python = ">=3.10"

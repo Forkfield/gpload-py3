@@ -830,7 +830,8 @@ class gpload:
     """
 
     def __init__(self,argv):
-        load_db_driver()
+        # The database driver is imported by db_connect(), so --version, -?
+        # and control-file validation work without psycopg2/PyGreSQL.
         self.threads = [] # remember threads so that we can join() against them
         self.exitValue = 0
         self.options = options()
