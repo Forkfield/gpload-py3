@@ -1,0 +1,14 @@
+include LICENSE
+include NOTICE
+include README.md
+include requirements.txt
+include requirements-dev.txt
+include pytest.ini
+include script/load.sh
+include script/gpload.yaml.ori
+recursive-include tests *
+recursive-include gpload-test *
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store

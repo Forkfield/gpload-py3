@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 # gpload - load file(s) into Greenplum Database
 # Copyright Greenplum 2008
+#
+# Python 3 port: Copyright 2026 Vitchenko Kirill
+# This file is a Python 3 port of the original gpload utility.
+# See NOTICE and LICENSE for attribution and license terms.
 
 '''gpload [options] -f configuration file
 
@@ -32,18 +36,34 @@ except ImportError:
     sys.exit(2)
 
 import platform
-try:
-    import psycopg2
-except ImportError:
-    psycopg2 = None
 
+psycopg2 = None
 pg = None
-if psycopg2 is None:
+
+
+def load_db_driver():
+    """Import psycopg2 or PyGreSQL, exiting with code 2 if neither works.
+
+    The import is deferred so that ``import gpload`` can be used for the
+    programmatic interface without a database driver in the calling process.
+    """
+    global psycopg2, pg
+    if psycopg2 is not None or pg is not None:
+        return
+
     try:
-        from pygresql import pg
+        import psycopg2 as _psycopg2
+    except ImportError:
+        _psycopg2 = None
+    if _psycopg2 is not None:
+        psycopg2 = _psycopg2
+        return
+
+    try:
+        from pygresql import pg as _pg
     except Exception:
         try:
-            import pg
+            import pg as _pg
         except Exception as e:
             from struct import calcsize
             sysWordSize = calcsize("P") * 8
@@ -56,8 +76,15 @@ if psycopg2 is None:
             sys.stderr.write(str(errorMsg))
             sys.exit(2)
 
+    pg = _pg
+
 import hashlib
 import codecs
+import csv
+import fnmatch
+import site
+import sysconfig
+import tempfile
 import datetime,getpass,os,signal,socket,subprocess,threading,time,traceback,re
 import uuid
 import socket
@@ -165,6 +192,7 @@ class Psycopg2DB:
 
 
 def db_connect(dbname, host, port, user, passwd):
+    load_db_driver()
     if psycopg2 is not None:
         return Psycopg2DB(dbname, host, port, user, passwd)
     return pg.DB(dbname=dbname, host=host, port=port, user=user, passwd=passwd)
@@ -802,6 +830,7 @@ class gpload:
     """
 
     def __init__(self,argv):
+        load_db_driver()
         self.threads = [] # remember threads so that we can join() against them
         self.exitValue = 0
         self.options = options()
@@ -2466,7 +2495,711 @@ class gpload:
                 time.sleep(1)
 
 
+# ---------------------------------------------------------------------------
+# Programmatic interface
+# ---------------------------------------------------------------------------
+
+class GploadError(RuntimeError):
+    """Raised by :meth:`GploadResult.raise_for_status` on a failed load."""
+
+    def __init__(self, result):
+        super().__init__('gpload failed with exit code %d' % result.returncode)
+        self.result = result
+
+
+class GploadResult:
+    """Outcome of one gpload run.
+
+    ``returncode`` follows the gpload/load.sh convention: 0 - success,
+    1 - loaded with rejected rows, 2 - failure, 124 - API timeout.
+    """
+
+    def __init__(self, returncode, stdout='', stderr='', log_file=None,
+                 command=None):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        self.log_file = log_file
+        self.command = list(command) if command else []
+
+    @property
+    def ok(self):
+        return self.returncode == 0
+
+    @property
+    def has_warnings(self):
+        return self.returncode == 1
+
+    @property
+    def failed(self):
+        return self.returncode >= 2
+
+    def raise_for_status(self):
+        """Raise :class:`GploadError` unless the load succeeded."""
+        if self.returncode != 0:
+            raise GploadError(self)
+        return self
+
+    def __repr__(self):
+        return 'GploadResult(returncode=%d, log_file=%r)' % (
+            self.returncode, self.log_file)
+
+
+class Gpload:
+    """Programmatic interface to gpload.
+
+    The load runs in a child process: gpload calls ``sys.exit()`` on errors
+    and replaces the process signal handlers, so calling it in-process would
+    affect the host application.  A load that exceeds ``timeout`` is killed
+    together with its gpfdist children (exit code 124).
+
+    Example::
+
+        gpload = Gpload()
+        result = gpload.load('/path/config.yaml', log='/var/log/gpload.log')
+        if result.has_warnings:
+            ...
+        result.raise_for_status()
+    """
+
+    def __init__(self, script=None, python=None, timeout=600):
+        script = script or globals().get('__file__')
+        if not script:
+            raise ValueError('cannot determine gpload.py path; pass script=')
+        self.script = os.path.abspath(script)
+        self.python = python or sys.executable
+        self.timeout = timeout
+
+    def build_command(self, config, log=None, host=None, port=None,
+                      user=None, database=None, dry_run=False, quiet=False,
+                      verbose=False, very_verbose=False, no_auto_trans=False,
+                      gpfdist_timeout=None, extra_args=None):
+        """Build the gpload command line without running it."""
+        cmd = [self.python, self.script, '-f', os.fspath(config)]
+        if host is not None:
+            cmd += ['-h', str(host)]
+        if port is not None:
+            cmd += ['-p', str(port)]
+        if user is not None:
+            cmd += ['-U', str(user)]
+        if database is not None:
+            cmd += ['-d', str(database)]
+        if log is not None:
+            cmd += ['-l', os.fspath(log)]
+        if dry_run:
+            cmd.append('-D')
+        if quiet:
+            cmd.append('-q')
+        if verbose:
+            cmd.append('-v')
+        if very_verbose:
+            cmd.append('-V')
+        if no_auto_trans:
+            cmd.append('--no_auto_trans')
+        if gpfdist_timeout is not None:
+            cmd += ['--gpfdist_timeout', str(gpfdist_timeout)]
+        if extra_args:
+            cmd += [str(a) for a in extra_args]
+        return cmd
+
+    @staticmethod
+    def _kill(proc):
+        """Kill the child and its gpfdist children."""
+        if os.name == 'posix':
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        else:
+            proc.kill()
+
+    def load(self, config, timeout=None, env=None, cwd=None, **options):
+        """Run gpload for ``config`` and return a :class:`GploadResult`.
+
+        ``options`` are the keyword arguments of :meth:`build_command`.
+        ``env`` entries are merged into the inherited environment.
+        """
+        cmd = self.build_command(config, **options)
+        log_file = options.get('log')
+        run_env = os.environ.copy()
+        if env:
+            run_env.update(env)
+        run_timeout = self.timeout if timeout is None else timeout
+
+        popen_kwargs = {}
+        if os.name == 'posix':
+            # Own process group: on timeout gpload and its gpfdist children
+            # are killed together.
+            popen_kwargs['start_new_session'] = True
+
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding='utf-8', errors='replace',
+            env=run_env, cwd=os.fspath(cwd) if cwd else None,
+            **popen_kwargs)
+        try:
+            stdout, stderr = proc.communicate(timeout=run_timeout)
+        except subprocess.TimeoutExpired:
+            self._kill(proc)
+            stdout, stderr = proc.communicate()
+            return GploadResult(124, stdout or '', stderr or '', log_file, cmd)
+        except BaseException:
+            # Ctrl-C in the caller must not leave gpload/gpfdist running:
+            # the child is in its own process group and does not get SIGINT.
+            self._kill(proc)
+            proc.communicate()
+            raise
+
+        return GploadResult(proc.returncode, stdout or '', stderr or '',
+                            log_file, cmd)
+
+
+def run_gpload(config, **kwargs):
+    """Shortcut for ``Gpload().load(config, **kwargs)``."""
+    return Gpload().load(config, **kwargs)
+
+
+class GploadTableResult:
+    """Outcome of loading one ``<data_dir>/<database>/<table>`` directory.
+
+    ``returncode`` uses the load.sh mapping: 0 - success, 1 - loaded with
+    rejected rows, 2 - failure (including a timeout).
+    """
+
+    def __init__(self, database, table, files=(), returncode=0,
+                 gpload_result=None, loaded_files=(), failed_files=(),
+                 error_file=None, error_line=None, message=None,
+                 config_path=None, config_text=None):
+        self.database = database
+        self.table = table
+        self.files = [os.fspath(path) for path in files]
+        self.returncode = returncode
+        self.gpload_result = gpload_result
+        self.loaded_files = [os.fspath(path) for path in loaded_files]
+        self.failed_files = [os.fspath(path) for path in failed_files]
+        self.error_file = error_file
+        self.error_line = error_line
+        self.message = message
+        self.config_path = config_path
+        self.config_text = config_text
+
+    @property
+    def source_dir(self):
+        if not self.files:
+            return None
+        return os.path.dirname(self.files[0])
+
+    @property
+    def ok(self):
+        return self.returncode == 0
+
+    @property
+    def has_warnings(self):
+        return self.returncode == 1
+
+    @property
+    def failed(self):
+        return self.returncode >= 2
+
+    def __repr__(self):
+        return 'GploadTableResult(database=%r, table=%r, returncode=%d)' % (
+            self.database, self.table, self.returncode)
+
+
+class GploadBatchResult:
+    """Aggregated outcome of :meth:`GploadBatch.load`."""
+
+    def __init__(self, tables=()):
+        self.tables = list(tables)
+
+    @property
+    def returncode(self):
+        code = 0
+        for table in self.tables:
+            if table.returncode >= 2:
+                return 2
+            if table.returncode == 1:
+                code = 1
+        return code
+
+    @property
+    def ok(self):
+        return self.returncode == 0
+
+    @property
+    def has_warnings(self):
+        return self.returncode == 1
+
+    @property
+    def failed(self):
+        return self.returncode >= 2
+
+    @property
+    def loaded_tables(self):
+        return [table for table in self.tables if table.ok]
+
+    @property
+    def warning_tables(self):
+        return [table for table in self.tables if table.has_warnings]
+
+    @property
+    def failed_tables(self):
+        return [table for table in self.tables if table.failed]
+
+    def raise_for_status(self):
+        """Raise :class:`GploadError` unless every table loaded cleanly."""
+        if self.returncode != 0:
+            raise GploadError(self)
+        return self
+
+    def __iter__(self):
+        return iter(self.tables)
+
+    def __len__(self):
+        return len(self.tables)
+
+    def __repr__(self):
+        return 'GploadBatchResult(tables=%d, returncode=%d)' % (
+            len(self.tables), self.returncode)
+
+
+def default_config_template(script=None):
+    """Return the default ``gpload.yaml.ori`` path.
+
+    The template is looked up next to ``gpload.py`` (source checkout) and in
+    the ``share/gpload-py3`` directory used by an installed package.
+    """
+    script = script or globals().get('__file__')
+    candidates = []
+    if script:
+        candidates.append(os.path.join(
+            os.path.dirname(os.path.abspath(script)), 'gpload.yaml.ori'))
+
+    try:
+        candidates.append(os.path.join(
+            sysconfig.get_path('data'), 'share', 'gpload-py3',
+            'gpload.yaml.ori'))
+    except (KeyError, TypeError):
+        pass
+
+    try:
+        candidates.append(os.path.join(
+            site.USER_BASE, 'share', 'gpload-py3', 'gpload.yaml.ori'))
+    except (AttributeError, TypeError):
+        pass
+
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return candidates[0] if candidates else 'gpload.yaml.ori'
+
+
+class GploadBatch:
+    """Batch loader for a ``<data_dir>/<database>/<table>/*.csv`` tree.
+
+    This is the programmatic equivalent of ``script/load.sh``: for every
+    table directory it renders a control file from ``gpload.yaml.ori`` (using
+    the CSV header for ``HEADER``/``COLUMNS``), loads all CSV files of that
+    directory in one gpload run, removes successfully loaded files and moves
+    the files of a failed load to ``failed/``.
+
+    Each table is loaded in a separate child process, so no database driver
+    is needed in the calling process.
+
+    Example::
+
+        from gpload import GploadBatch
+
+        batch = GploadBatch(
+            '/opt/gpstall/data',            # <db>/<table>/*.csv
+            log_dir='/var/log/gpstall',     # default: <data_dir>/../log
+            user='gpadmin',
+            password='secret',
+            host='127.0.0.1',
+            port=5432,
+        )
+        result = batch.load()
+        print(result.returncode, len(result.tables))
+    """
+
+    def __init__(self, data_dir, log_dir=None, config_template=None, *,
+                 user=None, password=None, host=None, port=None,
+                 gpfdist_host=None, port_range='[8081,8082]',
+                 error_limit=50000, script=None, python=None, timeout=600,
+                 file_pattern='*.csv', keep_temp_configs=False):
+        self.data_dir = os.path.abspath(os.fspath(data_dir))
+        if log_dir is None:
+            log_dir = os.path.join(os.path.dirname(self.data_dir), 'log')
+        self.log_dir = os.path.abspath(os.fspath(log_dir))
+
+        script = script or globals().get('__file__')
+        if not script:
+            raise ValueError('cannot determine gpload.py path; pass script=')
+        self.script = os.path.abspath(script)
+        self.python = python or sys.executable
+
+        if config_template is None:
+            config_template = default_config_template(self.script)
+        self.config_template = os.path.abspath(os.fspath(config_template))
+
+        self.user = user if user is not None else (
+            os.environ.get('PGUSER') or getpass.getuser())
+        self.password = password if password is not None else (
+            os.environ.get('PGPASSWORD'))
+        self.host = host if host is not None else (
+            os.environ.get('PGHOST') or '127.0.0.1')
+        self.port = port if port is not None else (
+            os.environ.get('PGPORT') or 5432)
+        self.gpfdist_host = gpfdist_host if gpfdist_host is not None else (
+            self.host)
+        self.port_range = port_range
+        self.error_limit = error_limit
+
+        self.timeout = timeout
+        self.file_pattern = file_pattern
+        self.keep_temp_configs = keep_temp_configs
+
+        self.log_file = os.path.join(self.log_dir, 'gpload.log')
+        self.latest_failed_file = os.path.join(
+            self.log_dir, 'latest_failed_file')
+
+        self.loader = Gpload(
+            script=self.script, python=self.python, timeout=timeout)
+
+    # -- discovery ---------------------------------------------------------
+
+    @staticmethod
+    def _subdirectories(path):
+        try:
+            with os.scandir(path) as entries:
+                entries = sorted(entries, key=lambda entry: entry.name)
+        except OSError:
+            return []
+
+        names = []
+        for entry in entries:
+            if entry.name.startswith('.'):
+                continue
+            try:
+                if entry.is_dir():
+                    names.append(entry.name)
+            except OSError:
+                pass
+        return names
+
+    def table_files(self, table_dir):
+        """Return the CSV files of one table directory, sorted."""
+        files = []
+        try:
+            with os.scandir(table_dir) as entries:
+                entries = list(entries)
+        except OSError:
+            return files
+
+        for entry in entries:
+            try:
+                is_file = entry.is_file()
+            except OSError:
+                is_file = False
+            if is_file and fnmatch.fnmatch(entry.name, self.file_pattern):
+                files.append(os.path.join(table_dir, entry.name))
+        return sorted(files)
+
+    def scan(self):
+        """Return ``[(database, table, [csv_file, ...]), ...]``.
+
+        Only tables that contain at least one matching file are returned.
+        """
+        if not os.path.isdir(self.data_dir):
+            raise FileNotFoundError(
+                'data directory not found: %s' % self.data_dir)
+
+        tables = []
+        for database in self._subdirectories(self.data_dir):
+            database_dir = os.path.join(self.data_dir, database)
+            for table in self._subdirectories(database_dir):
+                table_dir = os.path.join(database_dir, table)
+                files = self.table_files(table_dir)
+                if files:
+                    tables.append((database, table, files))
+        return tables
+
+    # -- control file rendering -------------------------------------------
+
+    @staticmethod
+    def _read_header(path):
+        with open(path, 'r', encoding='utf-8-sig', newline='') as handle:
+            try:
+                row = next(csv.reader(handle))
+            except (StopIteration, csv.Error):
+                return []
+        return [column.strip() for column in row if column.strip()]
+
+    def render_config(self, database, table, files):
+        """Render the control file template for one table."""
+        files = list(files)
+        if not files:
+            raise ValueError('no CSV files for %s.%s' % (database, table))
+
+        with open(self.config_template, 'r', encoding='utf-8') as handle:
+            template = handle.read()
+
+        columns = self._read_header(files[0])
+        if not columns:
+            raise ValueError(
+                'empty CSV header in %s' % files[0])
+
+        table_dir = os.path.dirname(os.path.abspath(files[0]))
+        file_block = '\n          - %s' % os.path.join(
+            table_dir, self.file_pattern)
+
+        header_block = '- HEADER: true\n    - COLUMNS:'
+        for column in columns:
+            header_block += '\n         - %s:' % column
+
+        values = {
+            'DATABASE': database,
+            'TABLE': table,
+            'FILE': file_block,
+            'HEADER': header_block,
+            'GPUSER': self.user,
+            'GPHOST': self.host,
+            'GPPORT': self.port,
+            'GPDHOST': self.gpfdist_host,
+            'GPDPORT_RANGE': self.port_range,
+            'ERROR_LIMIT': self.error_limit,
+        }
+        pattern = re.compile(r'\{(' + '|'.join(values) + r')\}')
+        return pattern.sub(
+            lambda match: str(values[match.group(1)]), template)
+
+    # -- loading -----------------------------------------------------------
+
+    @staticmethod
+    def _map_returncode(returncode):
+        if returncode == 0:
+            return 0
+        if returncode == 1:
+            return 1
+        return 2
+
+    def _environment(self):
+        env = os.environ.copy()
+        if self.password is not None:
+            env['PGPASSWORD'] = self.password
+
+        # load.sh removes $GPHOME/* from LD_LIBRARY_PATH: the system psycopg2
+        # is linked against the OS libpq and cannot load the older Greenplum
+        # one.  gpfdist is started by gpload.py in its own shell, which
+        # sources the Greenplum environment again.
+        gphome = env.get('GPHOME')
+        ld_path = env.get('LD_LIBRARY_PATH')
+        if gphome and ld_path:
+            prefix = gphome.rstrip(os.sep) + os.sep
+            kept = [path for path in ld_path.split(os.pathsep)
+                    if path and not path.startswith(prefix)]
+            if kept:
+                env['LD_LIBRARY_PATH'] = os.pathsep.join(kept)
+            else:
+                env.pop('LD_LIBRARY_PATH', None)
+        return env
+
+    def _append_log_separator(self):
+        with open(self.log_file, 'a', encoding='utf-8') as handle:
+            handle.write('------------------------------\n')
+            handle.flush()
+            return handle.tell()
+
+    def _read_log_since(self, offset):
+        try:
+            with open(self.log_file, 'r', encoding='utf-8',
+                      errors='replace') as handle:
+                handle.seek(offset)
+                return handle.read()
+        except OSError:
+            return ''
+
+    @staticmethod
+    def _parse_error_location(text):
+        error_file = None
+        error_line = None
+        for line in (text or '').splitlines()[-50:]:
+            if 'error file:' in line:
+                error_file = line.split('error file:', 1)[1].strip()
+            if 'error line:' in line:
+                error_line = line.split('error line:', 1)[1].strip()
+        return error_file or None, error_line or None
+
+    @staticmethod
+    def _remove_loaded(files):
+        removed = []
+        errors = []
+        for path in files:
+            try:
+                os.unlink(path)
+                removed.append(path)
+            except OSError as exc:
+                errors.append('%s: %s' % (path, exc))
+        message = None
+        if errors:
+            message = 'could not remove loaded files: ' + '; '.join(errors)
+        return removed, message
+
+    @staticmethod
+    def _move_to_failed(files, failed_dir):
+        os.makedirs(failed_dir, exist_ok=True)
+        moved = []
+        for path in files:
+            if not os.path.exists(path):
+                continue
+            destination = os.path.join(
+                failed_dir, os.path.basename(path))
+            try:
+                os.replace(path, destination)
+                moved.append(destination)
+            except OSError:
+                pass
+        return moved
+
+    def _quarantine(self, table_dir, files, error_file, error_line):
+        failed_dir = os.path.join(table_dir, 'failed')
+        os.makedirs(failed_dir, exist_ok=True)
+
+        try:
+            os.unlink(self.latest_failed_file)
+        except OSError:
+            pass
+
+        target = None
+        if error_file:
+            candidate = error_file if os.path.isabs(error_file) else \
+                os.path.join(table_dir, error_file)
+            candidate = os.path.abspath(candidate)
+            # Only quarantine a file that really belongs to this table.
+            if os.path.dirname(candidate) == os.path.abspath(table_dir):
+                target = candidate
+
+        if error_line and target and os.path.isfile(target):
+            destination = os.path.join(
+                failed_dir,
+                os.path.basename(target) + '_' + error_line)
+            try:
+                os.replace(target, destination)
+                moved = [destination]
+                entries = [destination]
+            except OSError:
+                moved = self._move_to_failed(files, failed_dir)
+                entries = moved
+        else:
+            moved = self._move_to_failed(files, failed_dir)
+            try:
+                entries = sorted(
+                    os.path.join(failed_dir, name)
+                    for name in os.listdir(failed_dir))
+            except OSError:
+                entries = []
+
+        with open(self.latest_failed_file, 'w', encoding='utf-8') as handle:
+            for entry in entries:
+                handle.write(entry + '\n')
+            handle.flush()
+        return moved
+
+    def load_table(self, database, table, files=None):
+        """Load all CSV files of one ``<database>/<table>`` directory."""
+        table_dir = os.path.join(self.data_dir, database, table)
+        if files is None:
+            files = self.table_files(table_dir)
+        files = [os.path.abspath(os.fspath(path)) for path in files]
+        if not files:
+            return GploadTableResult(database, table)
+        os.makedirs(self.log_dir, exist_ok=True)
+
+        try:
+            config_text = self.render_config(database, table, files)
+        except (OSError, UnicodeError, ValueError, csv.Error) as exc:
+            return GploadTableResult(
+                database, table, files=files, returncode=2,
+                message='cannot render control file: %s' % exc)
+
+        descriptor, config_path = tempfile.mkstemp(
+            prefix='gpload-batch-', suffix='.yaml')
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+                handle.write(config_text)
+
+            log_offset = self._append_log_separator()
+            run = self.loader.load(
+                config_path, log=self.log_file, env=self._environment(),
+                timeout=self.timeout)
+            output = self._read_log_since(log_offset) + run.stdout + \
+                run.stderr
+        finally:
+            if not self.keep_temp_configs:
+                try:
+                    os.unlink(config_path)
+                except OSError:
+                    pass
+
+        returncode = self._map_returncode(run.returncode)
+        if returncode == 0:
+            loaded, message = self._remove_loaded(files)
+            return GploadTableResult(
+                database, table, files=files, returncode=0,
+                gpload_result=run, loaded_files=loaded, message=message,
+                config_path=config_path, config_text=config_text)
+
+        error_file, error_line = self._parse_error_location(output)
+        failed = self._quarantine(
+            table_dir, files, error_file, error_line)
+        message = 'gpload exited with code %d' % run.returncode
+        if run.returncode == 124:
+            message = 'gpload timed out after %s seconds' % self.timeout
+        return GploadTableResult(
+            database, table, files=files, returncode=returncode,
+            gpload_result=run, failed_files=failed, error_file=error_file,
+            error_line=error_line, message=message,
+            config_path=config_path, config_text=config_text)
+
+    def load_dir(self, on_table=None):
+        """Alias for :meth:`load`."""
+        return self.load(on_table=on_table)
+
+    def load(self, on_table=None):
+        """Load every table directory and return a :class:`GploadBatchResult`.
+
+        ``on_table`` is an optional callback invoked with each
+        :class:`GploadTableResult` as soon as that table is processed.
+        """
+        if not os.path.isdir(self.data_dir):
+            raise FileNotFoundError(
+                'data directory not found: %s' % self.data_dir)
+        if not os.path.isfile(self.config_template):
+            raise FileNotFoundError(
+                'control file template not found: %s' % self.config_template)
+
+        os.makedirs(self.log_dir, exist_ok=True)
+
+        results = []
+        for database, table, files in self.scan():
+            result = self.load_table(database, table, files)
+            results.append(result)
+            if on_table is not None:
+                on_table(result)
+        return GploadBatchResult(results)
+
+
+def run_gpload_batch(data_dir, **kwargs):
+    """Shortcut for ``GploadBatch(data_dir, **kwargs).load()``."""
+    return GploadBatch(data_dir, **kwargs).load()
+
+
+def main(argv=None):
+    """Command-line entry point used by the ``gpload-py3`` console script."""
+    instance = gpload(sys.argv[1:] if argv is None else argv)
+    instance.run()
+    return instance.exitValue
+
+
 if __name__ == '__main__':
-    g = gpload(sys.argv[1:])
-    g.run()
-    sys.exit(g.exitValue)
+    sys.exit(main())

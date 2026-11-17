@@ -1,0 +1,15 @@
+gpload-py3
+Copyright 2026 Vitchenko Kirill
+
+This product is a Python 3 port of the gpload utility distributed with
+Greenplum Database.
+
+Original gpload:
+Copyright 2008 Greenplum, Inc.
+
+The original gpload is part of Greenplum Database, which is distributed under
+the Apache License, Version 2.0. This Python 3 port, the programmatic API and
+the test suite are modifications of that work and are distributed under the
+same license.
+
+See the LICENSE file for the full license text.

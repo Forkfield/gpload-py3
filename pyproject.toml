@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpload-py3"
+version = "0.1.0"
+description = "Python 3 port of the Greenplum gpload utility with a programmatic API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Vitchenko Kirill"},
+]
+maintainers = [
+    {name = "Vitchenko Kirill"},
+]
+keywords = [
+    "greenplum",
+    "gpload",
+    "gpfdist",
+    "etl",
+    "csv",
+    "database",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Database",
+]
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg2-binary>=2.9"]
+
+[project.urls]
+Homepage = "https://github.com/Forkfield/gpload-py3"
+Repository = "https://github.com/Forkfield/gpload-py3"
+Issues = "https://github.com/Forkfield/gpload-py3/issues"
+
+[project.scripts]
+gpload-py3 = "gpload:main"
+
+[tool.setuptools]
+package-dir = {"" = "script"}
+py-modules = ["gpload"]
+
+[tool.setuptools.data-files]
+"share/gpload-py3" = [
+    "NOTICE",
+    "script/gpload.yaml.ori",
+]

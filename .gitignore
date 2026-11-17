@@ -7,3 +7,6 @@ venv/
 /logs/
 /data/
 /output/
+dist/
+build/
+*.egg-info/
